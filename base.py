@@ -8,7 +8,7 @@ from sklearn.model_selection import train_test_split
 pd.set_option("display.max_columns", None)
 
 # Adjust this path if needed
-COMPETITION_PATH = "."
+COMPETITION_PATH = "./competition_data"
 
 
 def load_competition_datasets(data_dir, sample_frac=None, random_state=None):
@@ -32,7 +32,6 @@ def load_competition_datasets(data_dir, sample_frac=None, random_state=None):
     combined = pd.concat([train_df, test_df], ignore_index=True)
     print(f"  → Concatenated DataFrame: {combined.shape[0]} rows")
     return combined
-
 
 def cast_column_types(df):
     """
@@ -70,7 +69,6 @@ def cast_column_types(df):
     print("  → Column types cast successfully.")
     return df
 
-
 def split_train_test(X, y, test_mask):
     """
     Split features and labels into train/test based on mask.
@@ -85,7 +83,6 @@ def split_train_test(X, y, test_mask):
     print(f"  → Training set: {X_train.shape[0]} rows")
     print(f"  → Test set:     {X_test.shape[0]} rows")
     return X_train, X_test, y_train, y_test
-
 
 def train_classifier(X_train, y_train, params=None):
     """
@@ -114,70 +111,76 @@ def train_classifier(X_train, y_train, params=None):
     print("  → Model training complete.")
     return model
 
-
-
-
-
 def main():
-    print("=== Starting pipeline ===")
+    print("=== empezando ===")
 
-    # Load and preprocess data
-    df = load_competition_datasets(
-        COMPETITION_PATH, sample_frac=0.2, random_state=1234
-    )
+    # 1) cargar y castear
+    df = load_competition_datasets(COMPETITION_PATH, sample_frac=0.2, random_state=1234)
     df = cast_column_types(df)
 
-    # Generate user order column
+    # 2) ordenar y crear una feature simple (sumá más después)
     df = df.sort_values(["username", "ts"])
     df["user_order"] = df.groupby("username", observed=True).cumcount() + 1
-    df = df.sort_values(["obs_id"])
+    df = df.sort_values("obs_id")
 
-    
-    # Create target and test mask
-
-    print("Creating 'target' and 'is_test' columns...")
+    # 3) target e indicador de test
+    print("creando target e is_test...")
     df["target"] = (df["reason_end"] == "fwdbtn").astype(int)
     df["is_test"] = df["reason_end"].isna()
-    df.drop(columns=["reason_end"], inplace=True)
-    print("  → 'target' and 'is_test' created, dropped 'reason_end' column.")
 
-    to_keep = [
-        "obs_id",
-        "target",
-        "is_test",
-        "user_order"
-    ] #MODIFICAR
-    df = df[to_keep]
+    # 4) guardar labels para mergear después (solo donde hay label)
+    labels_df = df.loc[~df["is_test"], ["obs_id", "reason_end"]].copy()
+    labels_df["objetivo"] = (labels_df["reason_end"] == "fwdbtn").astype(int)
 
-   # Build feature matrix and get feature names
-    y = df["target"].to_numpy()
-    X = df.drop(columns=["target"])
-    feature_names = X.columns
-    test_mask = df["is_test"].to_numpy()
+    # 5) definir features limpias 
+    feature_cols = ["user_order"]  # agregá más columnas del dataset después
+    X_all = df[feature_cols].copy()
+    y_all = df["target"].to_numpy()
 
-    # Split data
-    X_train, X_test, y_train, _ = split_train_test(X, y, test_mask)
+    # 6) separar filas con y (train/valid) de las sin y (test real kaggle)
+    idx_labeled = df.index[~df["is_test"]]
+    idx_test = df.index[df["is_test"]]
 
-    # Train model
-    model = train_classifier(X_train, y_train)
+    X_labeled = X_all.loc[idx_labeled]
+    y_labeled = y_all[~df["is_test"].to_numpy()]
 
-    # Display top 20 feature importances
-    print("Extracting and sorting feature importances...")
-    importances = model.feature_importances_
-    imp_series = pd.Series(importances, index=feature_names)
-    imp_sorted = imp_series.sort_values(ascending=False)
-    print("\nTop 20 feature importances:")
-    print(imp_sorted.head(20))
+    X_test = X_all.loc[idx_test]
+    test_obs_ids = df.loc[idx_test, "obs_id"].to_numpy()
 
-    # Predict on test set
-    print("Generating predictions for test set...")
-    test_obs_ids = X_test["obs_id"]
-    preds_proba = model.predict_proba(X_test)[:, 1]
-    preds_df = pd.DataFrame({"obs_id": test_obs_ids, "pred_proba": preds_proba})
-    preds_df.to_csv("modelo_benchmark.csv", index=False, sep=",")
-    print(f"  → Predictions written to 'modelo_benchmark.csv'")
+    # 7) split para evaluar sin fugas (20% valid estratificado)
+    X_tr, X_val, y_tr, y_val = train_test_split(
+        X_labeled, y_labeled, test_size=0.2, stratify=y_labeled, random_state=42
+    )
 
-    print("=== Pipeline complete ===")
+    # 8) entrenar
+    model = train_classifier(X_tr, y_tr)
+
+    # 9) evaluar en valid
+    from sklearn.metrics import (
+        roc_auc_score, accuracy_score, precision_score, recall_score, f1_score
+    )
+    val_proba = model.predict_proba(X_val)[:, 1]
+    y_pred = (val_proba >= 0.5).astype(int)
+
+    print("metricas en valid (sin humo):")
+    print("  roc auc:", roc_auc_score(y_val, val_proba))
+    print("  accuracy:", accuracy_score(y_val, y_pred))
+    print("  precision:", precision_score(y_val, y_pred))
+    print("  recall:", recall_score(y_val, y_pred))
+    print("  f1:", f1_score(y_val, y_pred))
+    
+    # 10) reentrenar en TODO el labeled para predecir kaggle test (opcional pero prolijo)
+    model_full = train_classifier(X_labeled, y_labeled)
+
+    # 11) predecir test real y exportar para kaggle
+    test_proba = model_full.predict_proba(X_test)[:, 1]
+    preds_kaggle = pd.DataFrame({"obs_id": test_obs_ids, "pred_proba": test_proba})
+    preds_kaggle.to_csv("modelo_benchmark.csv", index=False)
+
+    print("→ exportados:")
+    print("   - modelo_benchmark.csv (formato kaggle)")
+
+    print("=== listo ===")
 
 
 if __name__ == "__main__":
