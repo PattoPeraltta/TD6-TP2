@@ -8,7 +8,8 @@ from sklearn.model_selection import train_test_split
 pd.set_option("display.max_columns", None)
 
 # Adjust this path if needed
-COMPETITION_PATH = "."
+COMPETITION_PATH = "Datos"
+
 
 
 def load_competition_datasets(data_dir, sample_frac=None, random_state=None):
@@ -30,7 +31,7 @@ def load_competition_datasets(data_dir, sample_frac=None, random_state=None):
 
     # Concatenate and reset index
     combined = pd.concat([train_df, test_df], ignore_index=True)
-    print(f"  → Concatenated DataFrame: {combined.shape[0]} rows")
+    print(f"  -> Concatenated DataFrame: {combined.shape[0]} rows")
     return combined
 
 
@@ -67,7 +68,7 @@ def cast_column_types(df):
         df["offline_timestamp"], unit="s", errors="coerce", utc=True
     )
     df = df.astype(dtype_map)
-    print("  → Column types cast successfully.")
+    print("  -> Column types cast successfully.")
     return df
 
 
@@ -82,8 +83,8 @@ def split_train_test(X, y, test_mask):
     y_train = y
     y_test = y
 
-    print(f"  → Training set: {X_train.shape[0]} rows")
-    print(f"  → Test set:     {X_test.shape[0]} rows")
+    print(f"  -> Training set: {X_train.shape[0]} rows")
+    print(f"  -> Test set:     {X_test.shape[0]} rows")
     return X_train, X_test, y_train, y_test
 
 
@@ -109,9 +110,9 @@ def train_classifier(X_train, y_train, params=None):
 
     model = RandomForestClassifier(**rf_params)
 
-    print("  → Fitting RandomForestClassifier...")
+    print("  -> Fitting RandomForestClassifier...")
     model.fit(X_train, y_train)
-    print("  → Model training complete.")
+    print("  -> Model training complete.")
     return model
 
 
@@ -139,7 +140,7 @@ def main():
     df["target"] = (df["reason_end"] == "fwdbtn").astype(int)
     df["is_test"] = df["reason_end"].isna()
     df.drop(columns=["reason_end"], inplace=True)
-    print("  → 'target' and 'is_test' created, dropped 'reason_end' column.")
+    print("  -> 'target' and 'is_test' created, dropped 'reason_end' column.")
 
     to_keep = [
         "obs_id",
@@ -175,7 +176,7 @@ def main():
     preds_proba = model.predict_proba(X_test)[:, 1]
     preds_df = pd.DataFrame({"obs_id": test_obs_ids, "pred_proba": preds_proba})
     preds_df.to_csv("modelo_benchmark.csv", index=False, sep=",")
-    print(f"  → Predictions written to 'modelo_benchmark.csv'")
+    print(f"  -> Predictions written to 'modelo_benchmark.csv'")
 
     print("=== Pipeline complete ===")
 
