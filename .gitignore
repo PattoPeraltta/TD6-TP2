@@ -10,3 +10,4 @@ competition_data/
 *.err
 *.out
 *.pdf
+*.pyc
