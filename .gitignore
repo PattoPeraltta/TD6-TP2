@@ -1,4 +1,13 @@
-competition_data
-lib
-include
-bin
+# Created by venv; see https://docs.python.org/3/library/venv.html
+venv
+.DS_Store
+competition_data/
+.ipynb_checkpoints/
+*.ipynb
+*.csv
+*.json
+*.txt
+*.log
+*.err
+*.out
+*.pdf
