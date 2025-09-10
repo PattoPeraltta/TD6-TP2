@@ -11,3 +11,4 @@ competition_data/
 *.out
 *.pdf
 *.pyc
+*.Rhistory
