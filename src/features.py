@@ -81,7 +81,8 @@ def add_platform(df: pd.DataFrame) -> pd.DataFrame:
     df['platform'] = df['platform'].apply(map_platform)
     return df
 
-# FALTA HACER ALGO CON LOS NOMBRES DE LOS ALBUMES Y CANCIONES
+def add_ohe_usernames(df: pd.DataFrame) -> pd.DataFrame:
+    pass
 
 def make_features(df: pd.DataFrame) -> pd.DataFrame:
     df = clean_nulls(df)
@@ -89,8 +90,5 @@ def make_features(df: pd.DataFrame) -> pd.DataFrame:
     df = add_track_order_in_day(df)
     df = add_track_features(df)
     df = add_platform(df)
-
-    df.drop(columns=['ts', 'time_of_day', 'master_metadata_album_artist_name', 'audiobook_title', 'audiobook_uri', 'audiobook_chapter_uri', 'audiobook_chapter_title', 'ip_addr', 
-                        'spotify_track_uri', 'spotify_episode_uri'], inplace=True)
-
+    df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri'], inplace=True)
     return df
