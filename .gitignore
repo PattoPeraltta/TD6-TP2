@@ -1,5 +1,15 @@
-modelo_benchmark.csv
-spotify_api_data/
-Datos/
-pyvenv.cfg
-submission_example.csv
+# Created by venv; see https://docs.python.org/3/library/venv.html
+venv
+.DS_Store
+competition_data/
+.ipynb_checkpoints/
+*.csv
+*.json
+*.txt
+*.log
+*.err
+*.out
+*.pdf
+*.pyc
+*.Rhistory
+*.png
