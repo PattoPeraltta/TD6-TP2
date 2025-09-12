@@ -1,6 +1,5 @@
-competition_data
-lib
-include
-bin
-spotify_api_data
-Datos
+modelo_benchmark.csv
+spotify_api_data/
+Datos/
+pyvenv.cfg
+submission_example.csv
