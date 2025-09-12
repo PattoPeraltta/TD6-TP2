@@ -21,16 +21,16 @@ def extract_track_id_from_uri(spotify_uri):
 
 def main():
     print("Loading train data...")
-    # Load train data
-    train_data_path = Path("competition_data/train_data.csv")
-    train_df = pd.read_csv(train_data_path)
-    print(f"Loaded {len(train_df)} rows from train_data.csv")
+    # Load train data (tab-separated file)
+    train_data_path = Path("competition_data/train_data.txt")
+    train_df = pd.read_csv(train_data_path, sep='\t')
+    print(f"Loaded {len(train_df)} rows from train_data.txt")
 
     print("Loading test data...")
-    # Load train data
-    test_data_path = Path("competition_data/test_data.csv")
-    test_df = pd.read_csv(test_data_path)
-    print(f"Loaded {len(test_df)} rows from test_data.csv")
+    # Load test data (tab-separated file)
+    test_data_path = Path("competition_data/test_data.txt")
+    test_df = pd.read_csv(test_data_path, sep='\t')
+    print(f"Loaded {len(test_df)} rows from test_data.txt")
     
     print("Loading track features...")
     # Load track features
