@@ -10,6 +10,8 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import warnings
+
+from scipy.special import roots_jacobi
 warnings.filterwarnings('ignore')
 
 # Add src directory to path
@@ -60,7 +62,7 @@ def encode_features_properly(X_train, X_val, X_test):
     for col in categorical_cols:
         print(f"Encoding column: {col}")
         le = LabelEncoder()
-        
+
         # CRITICAL: Only fit on training data
         le.fit(X_train[col].astype(str))
         
@@ -116,7 +118,7 @@ def encode_features_properly(X_train, X_val, X_test):
     
     return X_train_encoded, X_val_encoded, X_test_encoded
 
-def run_hyperparameter_tuning(X_train, y_train, X_val, y_val, X_test):
+def run_hyperparameter_tuning(X_train, y_train, X_val, y_val):
     """Run hyperparameter tuning with proper temporal validation."""
     print("🎛️  Starting hyperparameter tuning (TEMPORAL VALIDATION)...")
     print("-" * 50)
@@ -206,7 +208,7 @@ def main():
 
         # 3ro: correr el tuning de hiperparametros con validacion temporal
         tuning_results = run_hyperparameter_tuning(
-            X_train_encoded, y_train, X_val_encoded, y_val, X_test_encoded
+            X_train_encoded, y_train, X_val_encoded, y_val
         )
         
         # 4to: entrenar modelo final y generar archivo para kaggle
@@ -253,3 +255,6 @@ if __name__ == "__main__":
     else:
         print("\n💥 Pipeline failed. Please check the errors above.")
         sys.exit(1)
+
+
+# hyperopt 
