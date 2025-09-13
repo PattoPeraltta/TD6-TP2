@@ -6,6 +6,7 @@ from typing import Tuple, Dict, Any
 import joblib
 import os
 from pathlib import Path
+from datetime import datetime
 
 def train_xgboost_model(
     X_train: pd.DataFrame, 
@@ -193,7 +194,6 @@ def train_and_evaluate_pipeline(
     
     return model, metrics, test_predictions
 
-
 def load_best_model_from_tuning(model_path: str = "models/best_xgboost_model.pkl") -> XGBClassifier:
     """
     Load the best model from hyperparameter tuning.
@@ -211,24 +211,62 @@ def load_best_model_from_tuning(model_path: str = "models/best_xgboost_model.pkl
     print(f"Best model loaded from {model_path}")
     return model
 
+def generate_submission_filename(auc_score: float, pipeline_type: str = "full", custom_suffix: str = None) -> str:
+    """
+    Generate a unique submission filename with timestamp and AUC score.
+    
+    Args:
+        auc_score: Validation AUC score
+        pipeline_type: Type of pipeline ("full" or "short")
+        custom_suffix: Optional custom suffix to add to filename
+    
+    Returns:
+        Generated filename string
+    """
+    # Create timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Format AUC score to 4 decimal places
+    auc_str = f"{auc_score:.4f}"
+    
+    # Create base filename
+    filename_parts = [
+        "submission",
+        pipeline_type,
+        f"auc_{auc_str}",
+        timestamp
+    ]
+    
+    # Add custom suffix if provided
+    if custom_suffix:
+        filename_parts.append(custom_suffix)
+    
+    # Join parts with underscores
+    filename = "_".join(filename_parts) + ".csv"
+    
+    return filename
 
 def create_final_submission(
     model: XGBClassifier,
     X_test: pd.DataFrame,
-    submission_path: str = "final_submission.csv",
-    test_obs_ids: pd.Series = None
-) -> pd.DataFrame:
+    submission_path: str = None,
+    test_obs_ids: pd.Series = None,
+    auc_score: float = None,
+    pipeline_type: str = "full"
+) -> Tuple[pd.DataFrame, str]:
     """
     Create the final submission file for the competition.
     
     Args:
         model: Trained XGBoost model
         X_test: Test features
-        submission_path: Path to save the final submission
+        submission_path: Path to save the final submission (if None, generates automatic name)
         test_obs_ids: Actual obs_id values from test data (if None, uses sequential IDs)
+        auc_score: Validation AUC score for filename generation
+        pipeline_type: Type of pipeline for filename generation
     
     Returns:
-        DataFrame with final predictions
+        Tuple of (DataFrame with final predictions, submission file path)
     """
     print("Creating final submission file...")
     
@@ -241,7 +279,6 @@ def create_final_submission(
         print(f"Using actual obs_ids from test data (range: {obs_ids.min()} - {obs_ids.max()})")
     else:
         obs_ids = range(len(predictions))
-        print("Using sequential obs_ids (0, 1, 2, ...)")
     
     # Create submission DataFrame
     submission_df = pd.DataFrame({
@@ -249,14 +286,17 @@ def create_final_submission(
         'target': predictions
     })
     
+    # Generate submission path if not provided
+    if submission_path is None:
+        if auc_score is not None:
+            filename = generate_submission_filename(auc_score, pipeline_type)
+            # Create submissions directory
+            os.makedirs("submissions", exist_ok=True)
+            submission_path = os.path.join("submissions", filename)
+        else:
+            submission_path = "last_submission.csv"
+    
     # Save submission file
     submission_df.to_csv(submission_path, index=False)
     print(f"Final submission saved to: {submission_path}")
-    print(f"Predictions shape: {predictions.shape}")
-    print(f"Prediction statistics:")
-    print(f"  Mean: {predictions.mean():.4f}")
-    print(f"  Std: {predictions.std():.4f}")
-    print(f"  Min: {predictions.min():.4f}")
-    print(f"  Max: {predictions.max():.4f}")
-    
-    return submission_df
+    return submission_df, submission_path

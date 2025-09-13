@@ -16,24 +16,24 @@ XGB_DEFAULT = dict(
 # Hyperparameter tuning configuration
 TUNING_CONFIG = {
     'search_type': 'random',  # 'grid' or 'random'
-    'n_trials': 50,  # Number of trials for random search
-    'cv_folds': 3,  # Number of cross-validation folds
+    'n_trials': 30,  # Number of trials for random search
+    'cv_folds': 5,  # Number of cross-validation folds
     'early_stopping_rounds': 50,
     'verbose': True,
     'save_best_model': True,
     'best_model_path': 'models/best_xgboost_model.pkl'
 }
 
-# Hyperparameter search space
+# Hyperparameter search space with stronger regularization
 XGB_PARAM_GRID = {
-    'n_estimators': [500, 1000, 1500],  # Reduced range
+    'n_estimators': [300, 500, 800],  # Further reduced range
     'learning_rate': [0.01, 0.03, 0.05],  # Lower learning rates
-    'max_depth': [3, 4, 5, 6],  # Shallower trees
-    'min_child_weight': [3, 5, 7, 10],  # Higher min_child_weight
-    'subsample': [0.7, 0.8, 0.9],
-    'colsample_bytree': [0.7, 0.8, 0.9],
-    'reg_alpha': [0.1, 0.5, 1.0, 2.0],  # More regularization
-    'reg_lambda': [1.0, 2.0, 3.0, 5.0]
+    'max_depth': [3, 4, 5],  # Shallower trees for better generalization
+    'min_child_weight': [5, 10, 15],  # Higher min_child_weight for regularization
+    'subsample': [0.7, 0.8],  # Reduced subsample for regularization
+    'colsample_bytree': [0.7, 0.8],  # Reduced colsample for regularization
+    'reg_alpha': [1.0, 2.0, 3.0],  # Stronger L1 regularization
+    'reg_lambda': [2.0, 5.0, 10.0]  # Stronger L2 regularization
 }
 
 # Fixed parameters that won't be tuned

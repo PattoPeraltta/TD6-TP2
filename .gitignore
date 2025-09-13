@@ -1,6 +1,13 @@
 # Created by venv; see https://docs.python.org/3/library/venv.html
 venv
 .DS_Store
+*.pkl
+*.joblib
+*.h5
+*.hdf5
+*.pth
+*.pt
+*.pkl.gz
 competition_data/
 .ipynb_checkpoints/
 *.csv

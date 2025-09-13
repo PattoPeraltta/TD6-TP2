@@ -5,7 +5,8 @@ import numpy as np
 from typing import Tuple
 from features import *
 
-def extract_track_features(data_dir: str) -> pd.DataFrame:
+def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None) -> pd.DataFrame:
+    """Extract track features WITHOUT using test data for normalization statistics."""
     transformed_features = []
     durations_ms = []  # Store all durations to calculate mean
 
@@ -14,8 +15,8 @@ def extract_track_features(data_dir: str) -> pd.DataFrame:
 
     print(f"Found {len(track_files)} track files to process...")
 
-    # First pass: collect durations
-    print("First pass: collecting durations...")
+    # First pass: collect durations ONLY from training tracks
+    print("First pass: collecting durations (TRAINING TRACKS ONLY)...")
     for i, filename in enumerate(track_files):
         if i % 100 == 0:  # Progress indicator
             print(f"Collecting durations from file {i+1}/{len(track_files)}: {filename}")
@@ -26,22 +27,25 @@ def extract_track_features(data_dir: str) -> pd.DataFrame:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
 
-            # Extract duration_ms
+            # Extract track_id and duration_ms
+            track_id = data.get('id', '')
             duration_ms = data.get('duration_ms', 0)
-            if duration_ms > 0:  # Only include valid durations
+            
+            # CRITICAL: Only include durations from training tracks
+            if duration_ms > 0 and (train_track_ids is None or track_id in train_track_ids):
                 durations_ms.append(duration_ms)
 
         except (json.JSONDecodeError, KeyError, FileNotFoundError):
             continue
 
-    # Calculate mean duration statistics
-    mean_duration_ms = sum(durations_ms) / len(durations_ms) if durations_ms else 0
+    # Calculate mean duration statistics ONLY from training data
+    mean_duration_ms = np.mean(durations_ms) if durations_ms else 0
 
-    # Calculate 99th percentile for duration clipping
+    # Calculate 99th percentile for duration clipping ONLY from training data
     duration_99th_percentile = np.percentile(durations_ms, 99) if durations_ms else 0
 
-    print(f"Mean duration calculated: {mean_duration_ms:.0f} ms ({mean_duration_ms/60000:.2f} minutes) (from {len(durations_ms)} tracks with valid durations)")
-    print(f"99th percentile duration: {duration_99th_percentile:.0f} ms ({duration_99th_percentile/60000:.2f} minutes)")
+    print(f"Mean duration calculated (TRAINING ONLY): {mean_duration_ms:.0f} ms ({mean_duration_ms/60000:.2f} minutes) (from {len(durations_ms)} training tracks)")
+    print(f"99th percentile duration (TRAINING ONLY): {duration_99th_percentile:.0f} ms ({duration_99th_percentile/60000:.2f} minutes)")
 
     # Second pass: extract features
     print("Second pass: extracting features...")
@@ -54,10 +58,6 @@ def extract_track_features(data_dir: str) -> pd.DataFrame:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-
-            duration_ms = data.get('duration_ms', 0)
-            if duration_ms > 0:  # Only include valid durations
-                durations_ms.append(duration_ms)
 
             # Extract raw fields
             track_id = data.get('id', '')
@@ -208,34 +208,55 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
     try:
         train_df = pd.read_csv("competition_data/raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv")
         test_df = pd.read_csv("competition_data/raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv")
-        print("Estaban los archivos crudos con la data de spoti!")
+        print("Found existing raw files with Spotify data!")
     except FileNotFoundError:
-        print("No estan los archivos crudos con la data de spoti, los hago y guardo")
-        features = extract_track_features(track_data_path)
+        print("Raw files with Spotify data not found, creating them...")
+        
+        # Load raw data to get training track IDs
+        train_df_raw = pd.read_csv(train_path, sep='\t')
+        test_df_raw = pd.read_csv(test_path, sep='\t')
+        
+        # Extract track IDs from training data only
+        train_df_raw['track_id'] = train_df_raw['spotify_track_uri'].str.replace('spotify:track:', '')
+        train_track_ids = set(train_df_raw['track_id'].unique())
+        
+        print(f"Found {len(train_track_ids)} unique track IDs in training data")
+        
+        # Extract features WITHOUT test data leakage
+        features = extract_track_features_no_leakage(track_data_path, train_track_ids)
         train_df, test_df = load_and_merge_track_features(train_path, test_path, features)
 
     print("🎯 Applying feature engineering...")
-    # Apply feature engineering to both datasets
-    train_df_processed = make_features(train_df.copy())
-    test_df_processed = make_features(test_df.copy())
+    # Apply feature engineering WITHOUT username OHE first (to keep username for temporal split)
+    train_df_temp = make_features(train_df.copy(), include_username_ohe=False)
     
     print("📊 Creating train/validation split...")
-    train_idx, val_idx = per_user_time_split(train_df_processed, train_frac=0.8)
+    # Create temporal split using username column (before OHE)
+    train_idx, val_idx = per_user_time_split(train_df_temp, train_frac=0.8)
+    
+    print("🔧 Adding username one-hot encoding to final features...")
+    # Now apply full feature engineering including username OHE
+    train_df_processed = make_features(train_df.copy(), include_username_ohe=True)
+    test_df_processed = make_features(test_df.copy(), include_username_ohe=True)
 
     # Define feature columns (exclude target and ID columns)
     exclude_cols = ['reason_end', 'obs_id', 'username', 'ts', 'offline_timestamp', 'fwdbtn']
     feature_cols = [col for col in train_df_processed.columns if col not in exclude_cols]
     
-    # Handle missing values in features
+    # Handle missing values in features WITHOUT test data leakage
+    print("🔧 Imputing missing values (NO LEAKAGE)...")
     for col in feature_cols:
         if train_df_processed[col].dtype == 'object' or train_df_processed[col].dtype == 'category':
-            # Fill categorical columns with 'unknown'
-            pass
+            # Fill categorical columns with most frequent category from training data
+            most_frequent = train_df_processed[col].mode()[0] if not train_df_processed[col].mode().empty else 'unknown'
+            train_df_processed[col] = train_df_processed[col].fillna(most_frequent)
+            test_df_processed[col] = test_df_processed[col].fillna(most_frequent)
         else:
-            # Fill numeric columns with median
+            # Fill numeric columns with median from TRAINING DATA ONLY
             median_val = train_df_processed[col].median()
             train_df_processed[col] = train_df_processed[col].fillna(median_val)
             test_df_processed[col] = test_df_processed[col].fillna(median_val)
+            print(f"   Imputed {col} with training median: {median_val:.4f}")
 
     # Create final splits
     X_train = train_df_processed.iloc[train_idx][feature_cols]

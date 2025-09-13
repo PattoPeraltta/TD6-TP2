@@ -43,66 +43,91 @@ def load_and_prepare_data():
         traceback.print_exc()
         return None, None, None, None, None
 
-def encode_features(X, X_test, X_val=None):
-    """Encode categorical features."""
-    print("🔧 Encoding categorical features...")
+def encode_features_properly(X_train, X_val, X_test):
+    """Encode categorical features WITHOUT test data leakage."""
+    print("🔧 Encoding categorical features (NO LEAKAGE)...")
     
-    X_encoded = X.copy()
+    X_train_encoded = X_train.copy()
+    X_val_encoded = X_val.copy()
     X_test_encoded = X_test.copy()
     
     # Find categorical columns
-    categorical_cols = X.select_dtypes(include=['object', "category"]).columns
+    categorical_cols = X_train.select_dtypes(include=['object', 'category']).columns
     
-    # Encode categorical variables
+    print(f"Found {len(categorical_cols)} categorical columns: {list(categorical_cols)}")
+    
+    # Encode categorical variables WITHOUT test data leakage
     for col in categorical_cols:
+        print(f"Encoding column: {col}")
         le = LabelEncoder()
         
-        # Combine all unique values to avoid unseen labels
-        if X_val is not None:
-            all_values = pd.concat([X[col], X_test[col], X_val[col]]).astype(str).unique()
-        else:
-            all_values = pd.concat([X[col], X_test[col]]).astype(str).unique()
-        le.fit(all_values)
+        # CRITICAL: Only fit on training data
+        le.fit(X_train[col].astype(str))
         
-        # Transform
-        X_encoded[col] = le.transform(X[col].astype(str))
-        X_test_encoded[col] = le.transform(X_test[col].astype(str))
-        if X_val is not None:
-            X_val_encoded = X_val.copy() if 'X_val_encoded' not in locals() else X_val_encoded
+        # Transform training data
+        X_train_encoded[col] = le.transform(X_train[col].astype(str))
+        
+        # Handle unseen categories in validation and test
+        val_mask = X_val[col].astype(str).isin(le.classes_)
+        test_mask = X_test[col].astype(str).isin(le.classes_)
+        
+        # Count unseen categories
+        val_unseen = (~val_mask).sum()
+        test_unseen = (~test_mask).sum()
+        
+        if val_unseen > 0:
+            print(f"     Warning: {val_unseen} unseen categories in validation set")
+        if test_unseen > 0:
+            print(f"     Warning: {test_unseen} unseen categories in test set")
+        
+        # Handle validation set - only transform seen categories
+        if val_unseen > 0:
+            # Initialize with unseen category value
+            X_val_encoded[col] = np.full(len(X_val), len(le.classes_), dtype=int)
+            # Transform only the seen categories
+            seen_val_data = X_val[col][val_mask].astype(str)
+            if len(seen_val_data) > 0:
+                X_val_encoded.loc[val_mask, col] = le.transform(seen_val_data)
+        else:
+            # No unseen categories, safe to transform directly
             X_val_encoded[col] = le.transform(X_val[col].astype(str))
+        
+        # Handle test set - only transform seen categories  
+        if test_unseen > 0:
+            # Initialize with unseen category value
+            X_test_encoded[col] = np.full(len(X_test), len(le.classes_), dtype=int)
+            # Transform only the seen categories
+            seen_test_data = X_test[col][test_mask].astype(str)
+            if len(seen_test_data) > 0:
+                X_test_encoded.loc[test_mask, col] = le.transform(seen_test_data)
+        else:
+            # No unseen categories, safe to transform directly
+            X_test_encoded[col] = le.transform(X_test[col].astype(str))
     
     # Convert to float
-    X_encoded = X_encoded.astype(float)
+    X_train_encoded = X_train_encoded.astype(float)
+    X_val_encoded = X_val_encoded.astype(float)
     X_test_encoded = X_test_encoded.astype(float)
-    if X_val is not None:
-        X_val_encoded = X_val_encoded.astype(float)
     
-    print(f"✅ Encoding completed!")
-    print(f"   Final training features: {X_encoded.shape}")
+    print(f"✅ Encoding completed (NO LEAKAGE)!")
+    print(f"   Final training features: {X_train_encoded.shape}")
+    print(f"   Final validation features: {X_val_encoded.shape}")
     print(f"   Final test features: {X_test_encoded.shape}")
-    if X_val is not None:
-        print(f"   Final validation features: {X_val_encoded.shape}")
-        return X_encoded, X_test_encoded, X_val_encoded
     
-    return X_encoded, X_test_encoded
+    return X_train_encoded, X_val_encoded, X_test_encoded
 
-def run_hyperparameter_tuning(X, y, X_test):
-    """Run hyperparameter tuning."""
-    print("🎛️  Starting hyperparameter tuning...")
+def run_hyperparameter_tuning(X_train, y_train, X_val, y_val, X_test):
+    """Run hyperparameter tuning with proper temporal validation."""
+    print("🎛️  Starting hyperparameter tuning (TEMPORAL VALIDATION)...")
     print("-" * 50)
-    
-    # Create train/validation split -> 
-    X_train, X_val, y_train, y_val = train_test_split(
-        X, y, test_size=0.2, random_state=420, stratify=y
-    )
     
     print(f"   Training set: {X_train.shape}")
     print(f"   Validation set: {X_val.shape}")
     
-    # Custom tuning configuration for faster execution
+    # Custom tuning configuration with stronger regularization
     tuning_config = TUNING_CONFIG.copy()
-    tuning_config['n_trials'] = 15  # Reduced for faster execution
-    tuning_config['cv_folds'] = 5
+    tuning_config['n_trials'] = 35  # Increased for better search
+    tuning_config['cv_folds'] = 5  # Reduced for temporal validation
     
     print(f"Tuning configuration:")
     print(f"   Search type: {tuning_config['search_type']}")
@@ -112,7 +137,7 @@ def run_hyperparameter_tuning(X, y, X_test):
     # Initialize tuner
     tuner = HyperparameterTuner(tuning_config)
     
-    # Run tuning
+    # Run tuning with temporal validation
     tuning_results = tuner.tune_hyperparameters(
         X_train, y_train, X_val, y_val
     )
@@ -121,7 +146,7 @@ def run_hyperparameter_tuning(X, y, X_test):
     print(f"   Best CV AUC: {tuning_results['best_score']:.4f}")
     print(f"   Best parameters: {tuning_results['best_params']}")
     
-    return tuning_results, X_train, X_val, y_train, y_val
+    return tuning_results
 
 def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
     """Train final model and create submission."""
@@ -142,12 +167,14 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
     val_auc = roc_auc_score(y_val, y_val_pred)
     print(f"Final validation AUC: {val_auc:.4f}")
     
-    # Create submission with correct obs_ids
-    submission_df = create_final_submission(
+    # Create submission with correct obs_ids and automatic naming
+    submission_df, submission_path = create_final_submission(
         best_model, 
         X_test, 
-        "final_submission.csv",
-        test_obs_ids
+        submission_path=None,  # Will generate automatic name
+        test_obs_ids=test_obs_ids,
+        auc_score=val_auc,
+        pipeline_type="full"
     )
     
     # Save model
@@ -156,7 +183,7 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
     joblib.dump(best_model, "models/best_xgboost_model.pkl")
     print(f"Model saved to: models/best_xgboost_model.pkl")
     
-    return best_model, submission_df
+    return best_model, submission_df, submission_path
 
 def main():
     """Main function to run the unified pipeline."""
@@ -170,24 +197,24 @@ def main():
         if X_train is None:
             return False
         
-        # 2do: codificar features (para que todo sea numerico)
-        X_train_encoded, X_test_encoded, X_val_encoded = encode_features(X_train, X_test, X_val)
+        # 2do: codificar features (para que todo sea numerico) - SIN LEAKAGE
+        X_train_encoded, X_val_encoded, X_test_encoded = encode_features_properly(X_train, X_val, X_test)
         
         # (para ver las features finales)
-        print("TRAIN DATA:",X_train_encoded.head(1).T)
-        print("TEST DATA:",X_test_encoded.head(1).T)
+        print("TRAIN DATA:",X_train_encoded.head().T)
+        print("TEST DATA:",X_test_encoded.head().T)
 
-        # 3ro: correr el tuning de hiperparametros
-        tuning_results, X_train_split, X_val_split, y_train_split, y_val_split = run_hyperparameter_tuning(
-            X_train_encoded, y_train, X_test_encoded
+        # 3ro: correr el tuning de hiperparametros con validacion temporal
+        tuning_results = run_hyperparameter_tuning(
+            X_train_encoded, y_train, X_val_encoded, y_val, X_test_encoded
         )
         
         # 4to: entrenar modelo final y generar archivo para kaggle
         test_df_raw = pd.read_csv(str(TEST_PATH), sep='\t')
         test_obs_ids = test_df_raw['obs_id'].copy()
         
-        best_model, submission_df = train_final_model_and_create_submission(
-            tuning_results, X_train_split, X_val_split, y_train_split, y_val_split, X_test_encoded, test_obs_ids
+        best_model, submission_df, submission_path = train_final_model_and_create_submission(
+            tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
     
         # 5to: resumen de todo
@@ -200,7 +227,7 @@ def main():
         print(f"   Total trials tested: {len(tuning_results['tuning_results'])}")
         
         print(f"\n📁 Output files:")
-        print(f"   - final_submission.csv (main submission file)")
+        print(f"   - {submission_path} (main submission file)")
         print(f"   - models/best_xgboost_model.pkl (best trained model)")
         print(f"   - tuning_results/ (tuning results and visualizations)")
         
