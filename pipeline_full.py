@@ -19,7 +19,7 @@ warnings.filterwarnings('ignore')
 # Add src directory to path
 sys.path.append(str(Path(__file__).parent / "src"))
 
-from src.tuning import HyperparameterTuner, create_submission_file
+from src.tuning import HyperparameterTuner, HyperoptTuner, create_submission_file
 from src.model import create_final_submission
 from src.config import TUNING_CONFIG, TRAIN_PATH, TEST_PATH, SPOTIFY_API_DIR
 from data import make_data_with_features
@@ -133,8 +133,9 @@ def run_hyperparameter_tuning(X_train, y_train, X_val, y_val, X_test):
     print(f"   CV folds: {tuning_config['cv_folds']}")
     
     # Initialize tuner
-    tuner = HyperparameterTuner(tuning_config)
-    
+    # tuner = HyperparameterTuner(tuning_config)
+    tuner = HyperoptTuner(tuning_config)
+
     # Run tuning with temporal validation
     tuning_results = tuner.tune_hyperparameters(
         X_train, y_train, X_val, y_val

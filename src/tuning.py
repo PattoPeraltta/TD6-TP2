@@ -11,8 +11,9 @@ from xgboost import XGBClassifier
 import joblib
 from itertools import product
 import random
+from hyperopt import fmin, tpe, hp, STATUS_OK, Trials, space_eval
 
-from config import TUNING_CONFIG, XGB_PARAM_GRID, XGB_FIXED_PARAMS, SEED
+from src.config import TUNING_CONFIG, XGB_PARAM_GRID, XGB_FIXED_PARAMS, SEED
 
 class HyperparameterTuner:
     """
@@ -370,6 +371,425 @@ class HyperparameterTuner:
             print(f"Error creating plots: {e}")
 
 
+class HyperoptTuner:
+    """
+    Hyperparameter tuning class using Hyperopt's Tree-structured Parzen Estimator (TPE).
+    More efficient than grid/random search for finding optimal hyperparameters.
+    """
+    
+    def __init__(self, config: Dict[str, Any] = None):
+        """
+        Initialize the Hyperopt tuner.
+        
+        Args:
+            config: Tuning configuration dictionary
+        """
+        
+        
+        self.config = config or self._get_default_config()
+        self.best_params = None
+        self.best_score = 0.0
+        self.tuning_results = []
+        self.trials = None
+        self.space = self._define_search_space()
+        
+        # Set random seed for reproducibility
+        np.random.seed(SEED)
+    
+    def _get_default_config(self) -> Dict[str, Any]:
+        """Get default configuration for Hyperopt tuning."""
+        return {
+            'n_trials': 50,  # Number of optimization iterations
+            'cv_folds': 5,  # Number of cross-validation folds
+            'verbose': True,
+            'save_best_model': True,
+            'best_model_path': 'models/best_xgboost_model_hyperopt.pkl',
+            'early_stopping_rounds': 20
+        }
+    
+    def _define_search_space(self) -> Dict[str, Any]:
+        """
+        Define the search space for Hyperopt optimization.
+        Uses more flexible distributions than discrete grids.
+        """
+        space = {
+            # Continuous parameters
+            'learning_rate': hp.loguniform('learning_rate', np.log(0.005), np.log(0.2)),
+            'max_depth': hp.quniform('max_depth', 3, 10, 1),
+            'min_child_weight': hp.quniform('min_child_weight', 1, 20, 1),
+            'subsample': hp.uniform('subsample', 0.6, 1.0),
+            'colsample_bytree': hp.uniform('colsample_bytree', 0.6, 1.0),
+            'reg_alpha': hp.loguniform('reg_alpha', np.log(0.01), np.log(10.0)),
+            'reg_lambda': hp.loguniform('reg_lambda', np.log(0.01), np.log(10.0)),
+            
+            # Discrete parameters
+            'n_estimators': hp.choice('n_estimators', [200, 300, 500, 800, 1000, 1500]),
+            
+            # Add fixed parameters
+            **XGB_FIXED_PARAMS
+        }
+        
+        return space
+    
+    def _objective(self, params: Dict[str, Any], X: pd.DataFrame, y: pd.Series) -> Dict[str, Any]:
+        """
+        Objective function for Hyperopt optimization.
+        
+        Args:
+            params: Parameter dictionary from Hyperopt
+            X: Feature matrix
+            y: Target vector
+            
+        Returns:
+            Dictionary with loss and status
+        """
+        try:
+            # Convert float parameters to appropriate types
+            params = self._convert_params(params)
+            
+            # Perform cross-validation
+            mean_cv_score, fold_scores = self._cross_validate_params(X, y, params)
+            
+            # Store results
+            result = {
+                'params': params.copy(),
+                'mean_cv_score': mean_cv_score,
+                'fold_scores': fold_scores,
+                'std_cv_score': np.std(fold_scores)
+            }
+            self.tuning_results.append(result)
+            
+            if self.config['verbose']:
+                print(f"Trial {len(self.tuning_results)}: AUC = {mean_cv_score:.4f} (+/- {np.std(fold_scores):.4f})")
+                print(f"  Params: {params}")
+            
+            # Return negative AUC (Hyperopt minimizes)
+            return {
+                'loss': -mean_cv_score,
+                'status': STATUS_OK,
+                'auc': mean_cv_score,
+                'params': params
+            }
+            
+        except Exception as e:
+            print(f"Error in objective function: {e}")
+            return {
+                'loss': 0.0,
+                'status': STATUS_OK,
+                'auc': 0.0,
+                'params': params
+            }
+    
+    def _convert_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Convert Hyperopt parameter types to appropriate XGBoost types."""
+        converted = params.copy()
+        
+        # Convert float parameters to int where needed
+        if 'max_depth' in converted:
+            converted['max_depth'] = int(converted['max_depth'])
+        if 'min_child_weight' in converted:
+            converted['min_child_weight'] = int(converted['min_child_weight'])
+        
+        return converted
+    
+    def _cross_validate_params(
+        self, 
+        X: pd.DataFrame, 
+        y: pd.Series, 
+        params: Dict[str, Any]
+    ) -> Tuple[float, List[float]]:
+        """
+        Perform cross-validation for a given parameter set.
+        
+        Args:
+            X: Feature matrix
+            y: Target vector
+            params: XGBoost parameters
+            
+        Returns:
+            Tuple of (mean_cv_score, list_of_fold_scores)
+        """
+        cv_scores = []
+        cv = StratifiedKFold(
+            n_splits=self.config['cv_folds'], 
+            shuffle=True, 
+            random_state=SEED
+        )
+        
+        for fold, (train_idx, val_idx) in enumerate(cv.split(X, y)):
+            X_train_fold, X_val_fold = X.iloc[train_idx], X.iloc[val_idx]
+            y_train_fold, y_val_fold = y.iloc[train_idx], y.iloc[val_idx]
+            
+            # Create and train model
+            model_params = params.copy()
+            model_params['early_stopping_rounds'] = self.config.get('early_stopping_rounds', 20)
+            model = XGBClassifier(**model_params)
+            
+            # Train with early stopping
+            model.fit(
+                X_train_fold, y_train_fold,
+                eval_set=[(X_val_fold, y_val_fold)],
+                verbose=False
+            )
+            
+            # Make predictions and calculate AUC
+            y_pred_proba = model.predict_proba(X_val_fold)[:, 1]
+            fold_auc = roc_auc_score(y_val_fold, y_pred_proba)
+            cv_scores.append(fold_auc)
+        
+        mean_score = np.mean(cv_scores)
+        return mean_score, cv_scores
+    
+    def tune_hyperparameters(
+        self, 
+        X_train: pd.DataFrame, 
+        y_train: pd.Series,
+        X_val: pd.DataFrame = None,
+        y_val: pd.Series = None
+    ) -> Dict[str, Any]:
+        """
+        Perform hyperparameter tuning using Hyperopt TPE.
+        
+        Args:
+            X_train: Training features
+            y_train: Training labels
+            X_val: Validation features (optional, for final evaluation)
+            y_val: Validation labels (optional, for final evaluation)
+            
+        Returns:
+            Dictionary with best parameters and tuning results
+        """
+        print("=" * 60)
+        print("HYPEROPT HYPERPARAMETER TUNING")
+        print("=" * 60)
+        print(f"Max evaluations: {self.config['n_trials']}")
+        print(f"CV folds: {self.config['cv_folds']}")
+        print(f"Search space: Tree-structured Parzen Estimator (TPE)")
+        print("-" * 60)
+        
+        # Initialize trials
+        self.trials = Trials()
+        
+        # Create objective function with data
+        objective_with_data = lambda params: self._objective(params, X_train, y_train)
+        
+        # Perform optimization
+        start_time = time.time()
+        
+        print("Starting Hyperopt optimization...")
+        best = fmin(
+            fn=objective_with_data,
+            space=self.space,
+            algo=tpe.suggest,
+            max_evals=self.config['n_trials'],
+            trials=self.trials,
+            rstate=np.random.default_rng(SEED),
+            verbose=self.config['verbose']
+        )
+        
+        # Convert best parameters back to proper types
+        self.best_params = self._convert_params(space_eval(self.space, best))
+        
+        # Find best score from trials
+        best_trial = min(self.trials.trials, key=lambda x: x['result']['loss'])
+        self.best_score = best_trial['result']['auc']
+        
+        tuning_time = time.time() - start_time
+        
+        print("\n" + "=" * 60)
+        print("HYPEROPT TUNING COMPLETED")
+        print("=" * 60)
+        print(f"Total tuning time: {tuning_time:.2f} seconds")
+        print(f"Best CV AUC: {self.best_score:.4f}")
+        print(f"Best parameters: {self.best_params}")
+        print(f"Total trials: {len(self.trials.trials)}")
+        
+        # Final evaluation on validation set if provided
+        if X_val is not None and y_val is not None:
+            print("\n" + "-" * 40)
+            print("FINAL VALIDATION EVALUATION")
+            print("-" * 40)
+            
+            final_model_params = self.best_params.copy()
+            final_model_params['early_stopping_rounds'] = self.config.get('early_stopping_rounds', 20)
+            final_model = XGBClassifier(**final_model_params)
+            final_model.fit(
+                X_train, y_train,
+                eval_set=[(X_val, y_val)],
+                verbose=False
+            )
+            
+            y_val_pred = final_model.predict_proba(X_val)[:, 1]
+            final_auc = roc_auc_score(y_val, y_val_pred)
+            print(f"Final validation AUC: {final_auc:.4f}")
+        
+        # Save results
+        self._save_tuning_results()
+        
+        return {
+            'best_params': self.best_params,
+            'best_score': self.best_score,
+            'tuning_results': self.tuning_results,
+            'tuning_time': tuning_time,
+            'trials': self.trials
+        }
+    
+    def _save_tuning_results(self):
+        """Save Hyperopt tuning results to files."""
+        # Create results directory
+        results_dir = Path("tuning_results")
+        results_dir.mkdir(exist_ok=True)
+        
+        # Save detailed results
+        results_file = results_dir / "hyperopt_tuning_results.json"
+        with open(results_file, 'w') as f:
+            # Convert numpy types to Python types for JSON serialization
+            json_results = []
+            for result in self.tuning_results:
+                json_result = result.copy()
+                json_result['fold_scores'] = [float(score) for score in result['fold_scores']]
+                json_result['mean_cv_score'] = float(result['mean_cv_score'])
+                json_result['std_cv_score'] = float(result['std_cv_score'])
+                json_results.append(json_result)
+            
+            json.dump({
+                'best_params': self.best_params,
+                'best_score': float(self.best_score),
+                'tuning_results': json_results,
+                'config': self.config,
+                'total_trials': len(self.trials.trials) if self.trials else 0
+            }, f, indent=2)
+        
+        # Save best parameters summary
+        summary_file = results_dir / "hyperopt_best_params_summary.txt"
+        with open(summary_file, 'w') as f:
+            f.write("HYPEROPT BEST HYPERPARAMETERS\n")
+            f.write("=" * 50 + "\n")
+            f.write(f"Best CV AUC: {self.best_score:.4f}\n")
+            f.write(f"Total Trials: {len(self.trials.trials) if self.trials else 0}\n\n")
+            f.write("Best Parameters:\n")
+            for param, value in self.best_params.items():
+                f.write(f"  {param}: {value}\n")
+        
+        print(f"\nHyperopt tuning results saved to:")
+        print(f"  - {results_file}")
+        print(f"  - {summary_file}")
+    
+    def get_top_parameters(self, n_top: int = 5) -> List[Dict[str, Any]]:
+        """
+        Get the top N parameter combinations by CV score.
+        
+        Args:
+            n_top: Number of top combinations to return
+            
+        Returns:
+            List of top parameter combinations
+        """
+        sorted_results = sorted(
+            self.tuning_results, 
+            key=lambda x: x['mean_cv_score'], 
+            reverse=True
+        )
+        
+        return sorted_results[:n_top]
+    
+    def plot_tuning_results(self, save_path: str = None):
+        """
+        Create plots of Hyperopt tuning results (requires matplotlib).
+        
+        Args:
+            save_path: Path to save the plot
+        """
+        try:
+            import matplotlib.pyplot as plt
+            
+            if not self.trials:
+                print("No trials data available for plotting.")
+                return
+            
+            # Extract scores from trials
+            losses = [trial['result']['loss'] for trial in self.trials.trials]
+            aucs = [trial['result']['auc'] for trial in self.trials.trials]
+            trials = list(range(1, len(self.trials.trials) + 1))
+            
+            plt.figure(figsize=(15, 10))
+            
+            # Plot 1: AUC progression
+            plt.subplot(2, 3, 1)
+            plt.plot(trials, aucs, 'b-', alpha=0.7, marker='o', markersize=3)
+            plt.axhline(y=self.best_score, color='r', linestyle='--', 
+                       label=f'Best: {self.best_score:.4f}')
+            plt.xlabel('Trial')
+            plt.ylabel('CV AUC Score')
+            plt.title('Hyperopt AUC Progress')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            
+            # Plot 2: Loss progression (negative AUC)
+            plt.subplot(2, 3, 2)
+            plt.plot(trials, losses, 'r-', alpha=0.7, marker='o', markersize=3)
+            plt.xlabel('Trial')
+            plt.ylabel('Loss (-AUC)')
+            plt.title('Hyperopt Loss Progress')
+            plt.grid(True, alpha=0.3)
+            
+            # Plot 3: AUC distribution
+            plt.subplot(2, 3, 3)
+            plt.hist(aucs, bins=20, alpha=0.7, color='skyblue', edgecolor='black')
+            plt.axvline(x=self.best_score, color='r', linestyle='--', 
+                       label=f'Best: {self.best_score:.4f}')
+            plt.xlabel('CV AUC Score')
+            plt.ylabel('Frequency')
+            plt.title('AUC Distribution')
+            plt.legend()
+            plt.grid(True, alpha=0.3)
+            
+            # Plot 4: Parameter evolution (learning rate)
+            plt.subplot(2, 3, 4)
+            lr_values = [trial['misc']['vals']['learning_rate'][0] for trial in self.trials.trials]
+            plt.plot(trials, lr_values, 'g-', alpha=0.7, marker='o', markersize=2)
+            plt.xlabel('Trial')
+            plt.ylabel('Learning Rate')
+            plt.title('Learning Rate Evolution')
+            plt.yscale('log')
+            plt.grid(True, alpha=0.3)
+            
+            # Plot 5: Parameter evolution (max_depth)
+            plt.subplot(2, 3, 5)
+            depth_values = [trial['misc']['vals']['max_depth'][0] for trial in self.trials.trials]
+            plt.plot(trials, depth_values, 'purple', alpha=0.7, marker='s', markersize=2)
+            plt.xlabel('Trial')
+            plt.ylabel('Max Depth')
+            plt.title('Max Depth Evolution')
+            plt.grid(True, alpha=0.3)
+            
+            # Plot 6: Best parameters bar chart
+            plt.subplot(2, 3, 6)
+            param_names = list(self.best_params.keys())
+            param_values = list(self.best_params.values())
+            
+            # Convert values to strings for better display
+            param_values_str = [str(v) for v in param_values]
+            
+            plt.barh(param_names, param_values_str, alpha=0.7, color='lightgreen')
+            plt.xlabel('Parameter Value')
+            plt.title('Best Parameters')
+            plt.grid(True, alpha=0.3)
+            
+            plt.tight_layout()
+            
+            if save_path:
+                plt.savefig(save_path, dpi=300, bbox_inches='tight')
+                print(f"Hyperopt plot saved to: {save_path}")
+            
+            plt.show()
+            
+        except ImportError:
+            print("Matplotlib not available. Skipping plotting.")
+        except Exception as e:
+            print(f"Error creating Hyperopt plots: {e}")
+
+
 def create_submission_file(
     model: XGBClassifier, 
     X_test: pd.DataFrame, 
@@ -469,5 +889,66 @@ def run_complete_tuning_pipeline(
     tuner.plot_tuning_results("tuning_results/tuning_plots.png")
     
     print("\n✅ Complete tuning pipeline finished successfully!")
+    
+    return best_model, tuning_results, submission_df
+
+
+def run_complete_hyperopt_pipeline(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_val: pd.DataFrame,
+    y_val: pd.Series,
+    X_test: pd.DataFrame,
+    config: Dict[str, Any] = None
+) -> Tuple[XGBClassifier, Dict[str, Any], pd.DataFrame]:
+    """
+    Run the complete Hyperopt hyperparameter tuning and submission pipeline.
+    
+    Args:
+        X_train: Training features
+        y_train: Training labels
+        X_val: Validation features
+        y_val: Validation labels
+        X_test: Test features
+        config: Tuning configuration
+        
+    Returns:
+        Tuple of (best_model, tuning_results, submission_df)
+    """
+    print("🚀 Starting Complete Hyperopt Hyperparameter Tuning Pipeline")
+    print("=" * 60)
+    
+    # Initialize Hyperopt tuner
+    tuner = HyperoptTuner(config)
+    
+    # Perform hyperparameter tuning
+    tuning_results = tuner.tune_hyperparameters(
+        X_train, y_train, X_val, y_val
+    )
+    
+    # Train final model with best parameters
+    print("\n🏆 Training final model with best parameters...")
+    best_model = XGBClassifier(**tuning_results['best_params'])
+    best_model.fit(
+        X_train, y_train,
+        eval_set=[(X_val, y_val)],
+        early_stopping_rounds=tuner.config.get('early_stopping_rounds', 20),
+        verbose=100
+    )
+    
+    # Save best model if configured
+    if tuner.config.get('save_best_model', False):
+        model_path = tuner.config.get('best_model_path', 'models/best_xgboost_model_hyperopt.pkl')
+        os.makedirs(os.path.dirname(model_path), exist_ok=True)
+        joblib.dump(best_model, model_path)
+        print(f"Best model saved to: {model_path}")
+    
+    # Create submission file
+    submission_df = create_submission_file(best_model, X_test, submission_path="submissions/submission_hyperopt.csv")
+    
+    # Create tuning plots
+    tuner.plot_tuning_results("tuning_results/hyperopt_tuning_plots.png")
+    
+    print("\n✅ Complete Hyperopt tuning pipeline finished successfully!")
     
     return best_model, tuning_results, submission_df
