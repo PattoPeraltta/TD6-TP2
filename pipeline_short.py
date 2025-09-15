@@ -23,7 +23,7 @@ def train_model_with_fixed_params(params, X_train, X_val, y_train, y_val, X_test
     print(f"Validation AUC: {val_auc:.4f}")
     
     # Create submission with correct obs_ids and automatic naming
-    from model import create_final_submission
+    from src.model import create_final_submission
     submission_df, submission_path = create_final_submission(
         model, 
         X_test, 
@@ -69,8 +69,8 @@ def main():
         test_obs_ids = test_df_raw['obs_id'].copy()
 
         params = {
-                    'n_estimators': 500,
-                    'learning_rate': 0.05,
+                    'n_estimators': 400,
+                    'learning_rate': 0.03,
                     'max_depth': 5,
                     'min_child_weight': 5,
                     'subsample': 0.7,

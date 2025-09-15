@@ -10,14 +10,18 @@ import pandas as pd
 import numpy as np
 from pathlib import Path
 import warnings
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OneHotEncoder
 warnings.filterwarnings('ignore')
 
 # Add src directory to path
 sys.path.append(str(Path(__file__).parent / "src"))
 
-from tuning import HyperparameterTuner, create_submission_file
-from model import create_final_submission
-from config import TUNING_CONFIG, TRAIN_PATH, TEST_PATH, SPOTIFY_API_DIR
+from src.tuning import HyperparameterTuner, create_submission_file
+from src.model import create_final_submission
+from src.config import TUNING_CONFIG, TRAIN_PATH, TEST_PATH, SPOTIFY_API_DIR
 from data import make_data_with_features
 from xgboost import XGBClassifier
 from sklearn.model_selection import train_test_split
@@ -44,72 +48,66 @@ def load_and_prepare_data():
         return None, None, None, None, None
 
 def encode_features_properly(X_train, X_val, X_test):
-    """Encode categorical features WITHOUT test data leakage."""
-    print("🔧 Encoding categorical features (NO LEAKAGE)...")
+    """Encode categorical features using ColumnTransformer WITHOUT test data leakage."""
+    print("🔧 Encoding categorical features with ColumnTransformer (NO LEAKAGE)...")
     
-    X_train_encoded = X_train.copy()
-    X_val_encoded = X_val.copy()
-    X_test_encoded = X_test.copy()
+    # Find categorical and numercial columns
+    num_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    cat_cols = [c for c in X_train.columns if c not in num_cols]
     
-    # Find categorical columns
-    categorical_cols = X_train.select_dtypes(include=['object', 'category']).columns
+    print(f"Found {len(cat_cols)} categorical columns: {cat_cols}")
     
-    print(f"Found {len(categorical_cols)} categorical columns: {list(categorical_cols)}")
+    if len(cat_cols) == 0:
+        print("No categorical columns found, returning original data")
+        return X_train, X_val, X_test
+
+    # Split columns by dtype
     
-    # Encode categorical variables WITHOUT test data leakage
-    for col in categorical_cols:
-        print(f"Encoding column: {col}")
-        le = LabelEncoder()
-        
-        # CRITICAL: Only fit on training data
-        le.fit(X_train[col].astype(str))
-        
-        # Transform training data
-        X_train_encoded[col] = le.transform(X_train[col].astype(str))
-        
-        # Handle unseen categories in validation and test
-        val_mask = X_val[col].astype(str).isin(le.classes_)
-        test_mask = X_test[col].astype(str).isin(le.classes_)
-        
-        # Count unseen categories
-        val_unseen = (~val_mask).sum()
-        test_unseen = (~test_mask).sum()
-        
-        if val_unseen > 0:
-            print(f"     Warning: {val_unseen} unseen categories in validation set")
-        if test_unseen > 0:
-            print(f"     Warning: {test_unseen} unseen categories in test set")
-        
-        # Handle validation set - only transform seen categories
-        if val_unseen > 0:
-            # Initialize with unseen category value
-            X_val_encoded[col] = np.full(len(X_val), len(le.classes_), dtype=int)
-            # Transform only the seen categories
-            seen_val_data = X_val[col][val_mask].astype(str)
-            if len(seen_val_data) > 0:
-                X_val_encoded.loc[val_mask, col] = le.transform(seen_val_data)
-        else:
-            # No unseen categories, safe to transform directly
-            X_val_encoded[col] = le.transform(X_val[col].astype(str))
-        
-        # Handle test set - only transform seen categories  
-        if test_unseen > 0:
-            # Initialize with unseen category value
-            X_test_encoded[col] = np.full(len(X_test), len(le.classes_), dtype=int)
-            # Transform only the seen categories
-            seen_test_data = X_test[col][test_mask].astype(str)
-            if len(seen_test_data) > 0:
-                X_test_encoded.loc[test_mask, col] = le.transform(seen_test_data)
-        else:
-            # No unseen categories, safe to transform directly
-            X_test_encoded[col] = le.transform(X_test[col].astype(str))
+    # Numeric pipeline
+    num_pipe = Pipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+    ])
+
+    # Categorical pipeline
+    cat_pipe = Pipeline([
+        ("imputer", SimpleImputer(strategy="most_frequent")),
+        ("ohe", OneHotEncoder(
+            handle_unknown="ignore",   # unseen categories at inference won’t crash
+            sparse_output=False,       # dense array output
+            min_frequency=0.01         # group rare categories together (1% cutoff)
+        )),
+    ])
+    
+    # Combine into one ColumnTransformer
+    preprocessor = ColumnTransformer([
+        ("num", num_pipe, num_cols),
+        ("cat", cat_pipe, cat_cols),
+    ])
+    
+    # CRITICAL: Only fit on training data to prevent leakage
+    print("Fitting ColumnTransformer on training data only...")
+    preprocessor.fit(X_train)
+    
+    # Transform all datasets
+    print("Transforming datasets...")
+    X_train_encoded = preprocessor.transform(X_train)
+    X_val_encoded = preprocessor.transform(X_val)
+    X_test_encoded = preprocessor.transform(X_test)
+    
+    # Convert back to DataFrames with proper feature names from ColumnTransformer
+    # Get the actual feature names after transformation
+    feature_names = preprocessor.get_feature_names_out()
+    
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=feature_names, index=X_train.index)
+    X_val_encoded = pd.DataFrame(X_val_encoded, columns=feature_names, index=X_val.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=feature_names, index=X_test.index)
     
     # Convert to float
     X_train_encoded = X_train_encoded.astype(float)
     X_val_encoded = X_val_encoded.astype(float)
     X_test_encoded = X_test_encoded.astype(float)
     
-    print(f"✅ Encoding completed (NO LEAKAGE)!")
+    print(f"✅ ColumnTransformer encoding completed (NO LEAKAGE)!")
     print(f"   Final training features: {X_train_encoded.shape}")
     print(f"   Final validation features: {X_val_encoded.shape}")
     print(f"   Final test features: {X_test_encoded.shape}")
