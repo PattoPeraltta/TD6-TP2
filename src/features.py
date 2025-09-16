@@ -109,6 +109,27 @@ def add_ohe_usernames(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     
     return df
 
+def add_per_user_skip_rate(train_df: pd.DataFrame, test_df: pd.DataFrame, train_idx: np.ndarray, val_idx: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+
+    # Create training subset for calculating user skip rates
+    train_subset = train_df.iloc[train_idx]
+    
+    # Calculamos el user_skip_rate SOLO EN TRAIN
+    user_skip_rate = ( train_subset.groupby("username")['fwdbtn']
+                        .mean()
+                        .rename("per_user_skip_rate")
+                    )
+
+    # Add per_user_skip_rate to all dataframes
+    train_df = train_df.merge(user_skip_rate, on="username", how="left")
+    test_df = test_df.merge(user_skip_rate, on="username", how="left")
+
+    global_skip_rate = train_subset['fwdbtn'].mean()
+    for df in [train_df, test_df]:
+        df["per_user_skip_rate"] = df["per_user_skip_rate"].fillna(global_skip_rate)
+
+    return train_df, test_df
+
 def make_features(df: pd.DataFrame, include_username_ohe: bool = True, verbose: bool = False) -> pd.DataFrame:
     df = clean_nulls(df)
     df = add_temporal(df)
@@ -121,5 +142,5 @@ def make_features(df: pd.DataFrame, include_username_ohe: bool = True, verbose: 
     if include_username_ohe:
         df = add_ohe_usernames(df, verbose=verbose)  # Add one-hot encoding for usernames
     
-    df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri'], inplace=True)
+    df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri', 'Unnamed: 0'], inplace=True)
     return df

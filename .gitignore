@@ -22,3 +22,4 @@ competition_data/
 *.png
 tempCodeRunnerFile.py
 *.pkl
+catboost_info/

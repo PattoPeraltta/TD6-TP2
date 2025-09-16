@@ -16,6 +16,9 @@ def train_model_with_fixed_params(params, X_train, X_val, y_train, y_val, X_test
         eval_set=[(X_val, y_val)],
         verbose=False  # Reduce verbose output
     )
+
+    # from src.model import train_ensemble_model
+    # model = train_ensemble_model(X_train, y_train, X_val, y_val, verbose=True)
     
     # Evaluate on validation set
     y_val_pred = model.predict_proba(X_val)[:, 1]
@@ -102,13 +105,25 @@ def main():
             params, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
         
-        # Get feature importance
-        feature_importance = best_model.feature_importances_
-        feature_names = X_train_encoded.columns
-        importance_df = pd.DataFrame({
-            'feature': feature_names,
-            'importance': feature_importance
-        }).sort_values('importance', ascending=False)
+        # Get feature importance (handle both single models and ensemble)
+        if hasattr(best_model, 'feature_importances_'):
+            # Single model (XGBoost)
+            feature_importance = best_model.feature_importances_
+        elif hasattr(best_model, 'get_feature_importances'):
+            # Ensemble model - use normalized importance (0-1 scale)
+            feature_importance = best_model.get_feature_importances(normalized=True)
+        else:
+            # Fallback
+            feature_importance = None
+        
+        if feature_importance is not None:
+            feature_names = X_train_encoded.columns
+            importance_df = pd.DataFrame({
+                'feature': feature_names,
+                'importance': feature_importance
+            }).sort_values('importance', ascending=False)
+        else:
+            importance_df = None
     
         # Final summary
         print("\n" + "=" * 60)
@@ -121,9 +136,12 @@ def main():
         print(f"  Validation samples: {X_val_encoded.shape[0]:,}")
         print(f"  Test predictions: {len(test_obs_ids):,}")
         
-        print(f"\nTop 10 Most Important Features:")
-        for i, (_, row) in enumerate(importance_df.head(10).iterrows(), 1):
-            print(f"  {i:2d}. {row['feature']:<30} {row['importance']:.4f}")
+        if importance_df is not None:
+            print(f"\nTop 10 Most Important Features:")
+            for i, (_, row) in enumerate(importance_df.head(10).iterrows(), 1):
+                print(f"  {i:2d}. {row['feature']:<30} {row['importance']:.4f}")
+        else:
+            print(f"\nFeature importance not available for this model type.")
         
         print(f"\nOutput Files:")
         print(f"  - {submission_path} (main submission file)")
