@@ -6,7 +6,7 @@ from typing import Tuple
 from src.features import *
 from src.config import DATA_DIR
 
-def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None) -> pd.DataFrame:
+def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None, verbose: bool = False) -> pd.DataFrame:
     """Extract track features WITHOUT using test data for normalization statistics."""
     transformed_features = []
     durations_ms = []  # Store all durations to calculate mean
@@ -14,12 +14,14 @@ def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None
     # Get all track files
     track_files = [f for f in os.listdir(data_dir) if f.lower().endswith('.json')]
 
-    print(f"Found {len(track_files)} track files to process...")
+    if verbose:
+        print(f"Found {len(track_files)} track files to process...")
 
     # First pass: collect durations ONLY from training tracks
-    print("First pass: collecting durations (TRAINING TRACKS ONLY)...")
+    if verbose:
+        print("First pass: collecting durations (TRAINING TRACKS ONLY)...")
     for i, filename in enumerate(track_files):
-        if i % 100 == 0:  # Progress indicator
+        if verbose and i % 100 == 0:  # Progress indicator
             print(f"Collecting durations from file {i+1}/{len(track_files)}: {filename}")
 
         file_path = os.path.join(data_dir, filename)
@@ -45,13 +47,15 @@ def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None
     # Calculate 99th percentile for duration clipping ONLY from training data
     duration_99th_percentile = np.percentile(durations_ms, 99) if durations_ms else 0
 
-    print(f"Mean duration calculated (TRAINING ONLY): {mean_duration_ms:.0f} ms ({mean_duration_ms/60000:.2f} minutes) (from {len(durations_ms)} training tracks)")
-    print(f"99th percentile duration (TRAINING ONLY): {duration_99th_percentile:.0f} ms ({duration_99th_percentile/60000:.2f} minutes)")
+    if verbose:
+        print(f"Mean duration calculated (TRAINING ONLY): {mean_duration_ms:.0f} ms ({mean_duration_ms/60000:.2f} minutes) (from {len(durations_ms)} training tracks)")
+        print(f"99th percentile duration (TRAINING ONLY): {duration_99th_percentile:.0f} ms ({duration_99th_percentile/60000:.2f} minutes)")
 
     # Second pass: extract features
-    print("Second pass: extracting features...")
+    if verbose:
+        print("Second pass: extracting features...")
     for i, filename in enumerate(track_files):
-        if i % 100 == 0:  # Progress indicator
+        if verbose and i % 100 == 0:  # Progress indicator
             print(f"Processing file {i+1}/{len(track_files)}: {filename}")
 
         file_path = os.path.join(data_dir, filename)
@@ -107,7 +111,8 @@ def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None
             transformed_features.append(transformed_data)
 
         except (json.JSONDecodeError, KeyError, FileNotFoundError) as e:
-            print(f"Error processing {filename}: {e}")
+            if verbose:
+                print(f"Error processing {filename}: {e}")
             continue
 
     # Convert to DataFrame first, then apply transformations
@@ -118,11 +123,12 @@ def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None
     for c in ["popularity", "track_number", "available_markets_count", "release_year", "duration_normalized"]:
         transformed_features_df[c] = pd.to_numeric(transformed_features_df[c], errors="coerce").astype("float32")
 
-    print(f"Successfully processed {len(transformed_features_df)} tracks")
+    if verbose:
+        print(f"Successfully processed {len(transformed_features_df)} tracks")
 
     return transformed_features_df
 
-def load_and_merge_track_features(train_path: str, test_path: str, features: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+def load_and_merge_track_features(train_path: str, test_path: str, features: pd.DataFrame, verbose: bool = False) -> tuple[pd.DataFrame, pd.DataFrame]:
     train_df = pd.read_csv(train_path, sep='\t')
     test_df = pd.read_csv(test_path,  sep='\t')
 
@@ -135,7 +141,8 @@ def load_and_merge_track_features(train_path: str, test_path: str, features: pd.
     test_df = test_df.merge(features, on='track_id',  how='left')
 
     cov = train_df["duration_normalized"].notna().mean()
-    print(f"[merge] feature coverage on train: {cov:.1%} ({train_df['duration_normalized'].notna().sum()}/{n_train})")
+    if verbose:
+        print(f"[merge] feature coverage on train: {cov:.1%} ({train_df['duration_normalized'].notna().sum()}/{n_train})")
 
     boolean_columns = ['explicit', 'shuffle', 'offline', 'incognito_mode']
     for col in boolean_columns:
@@ -199,19 +206,22 @@ def per_user_time_split(df: pd.DataFrame, train_frac: float = 0.8):
 
     return train_idx, val_idx
 
-def make_data_with_features(train_path: str, test_path: str, track_data_path: str) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, np.ndarray, np.ndarray]:
+def make_data_with_features(train_path: str, test_path: str, track_data_path: str, verbose: bool = False) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, np.ndarray, np.ndarray]:
     """
     Unified function that loads data, merges Spotify features, applies feature engineering,
     and returns train/validation/test splits ready for modeling.
     """
-    print("🔄 Loading and merging Spotify features...")
+    if verbose:
+        print("Loading and merging Spotify features...")
 
     try:
         train_df = pd.read_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv"))
         test_df = pd.read_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv"))
-        print("Found existing raw files with Spotify data!")
+        if verbose:
+            print("Found existing raw files with Spotify data!")
     except FileNotFoundError:
-        print("Raw files with Spotify data not found, creating them...")
+        if verbose:
+            print("Raw files with Spotify data not found, creating them...")
         
         # Load raw data to get training track IDs
         train_df_raw = pd.read_csv(train_path, sep='\t')
@@ -221,31 +231,36 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
         train_df_raw['track_id'] = train_df_raw['spotify_track_uri'].str.replace('spotify:track:', '')
         train_track_ids = set(train_df_raw['track_id'].unique())
         
-        print(f"Found {len(train_track_ids)} unique track IDs in training data")
+        if verbose:
+            print(f"Found {len(train_track_ids)} unique track IDs in training data")
         
         # Extract features WITHOUT test data leakage
-        features = extract_track_features_no_leakage(track_data_path, train_track_ids)
-        train_df, test_df = load_and_merge_track_features(train_path, test_path, features)
+        features = extract_track_features_no_leakage(track_data_path, train_track_ids, verbose=verbose)
+        train_df, test_df = load_and_merge_track_features(train_path, test_path, features, verbose=verbose)
 
-    print("🎯 Applying feature engineering...")
+    if verbose:
+        print("Applying feature engineering...")
     # Apply feature engineering WITHOUT username OHE first (to keep username for temporal split)
-    train_df_temp = make_features(train_df.copy(), include_username_ohe=False)
+    train_df_temp = make_features(train_df.copy(), include_username_ohe=False, verbose=verbose)
     
-    print("📊 Creating train/validation split...")
+    if verbose:
+        print("Creating train/validation split...")
     # Create temporal split using username column (before OHE)
     train_idx, val_idx = per_user_time_split(train_df_temp, train_frac=0.8)
     
-    print("🔧 Adding username one-hot encoding to final features...")
+    if verbose:
+        print("Adding username one-hot encoding to final features...")
     # Now apply full feature engineering including username OHE
-    train_df_processed = make_features(train_df.copy(), include_username_ohe=True)
-    test_df_processed = make_features(test_df.copy(), include_username_ohe=True)
+    train_df_processed = make_features(train_df.copy(), include_username_ohe=True, verbose=verbose)
+    test_df_processed = make_features(test_df.copy(), include_username_ohe=True, verbose=verbose)
 
     # Define feature columns (exclude target and ID columns)
     exclude_cols = ['reason_end', 'obs_id', 'username', 'ts', 'offline_timestamp', 'fwdbtn']
     feature_cols = [col for col in train_df_processed.columns if col not in exclude_cols]
     
     # Handle missing values in features WITHOUT test data leakage
-    print("🔧 Imputing missing values (NO LEAKAGE)...")
+    if verbose:
+        print("Imputing missing values (NO LEAKAGE)...")
     for col in feature_cols:
         if train_df_processed[col].dtype == 'object' or train_df_processed[col].dtype == 'category':
             # Fill categorical columns with most frequent category from training data
@@ -257,7 +272,8 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
             median_val = train_df_processed[col].median()
             train_df_processed[col] = train_df_processed[col].fillna(median_val)
             test_df_processed[col] = test_df_processed[col].fillna(median_val)
-            print(f"   Imputed {col} with training median: {median_val:.4f}")
+            if verbose:
+                print(f"   Imputed {col} with training median: {median_val:.4f}")
 
     # Create final splits
     X_train = train_df_processed.iloc[train_idx][feature_cols]
@@ -266,12 +282,13 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
     y_val = train_df_processed.iloc[val_idx]['fwdbtn']
     X_test = test_df_processed[feature_cols]
 
-    print(f"✅ Data processing completed!")
-    print(f"   Training features: {X_train.shape}")
-    print(f"   Validation features: {X_val.shape}")
-    print(f"   Test features: {X_test.shape}")
-    print(f"   Training target distribution: {y_train.value_counts().to_dict()}")
-    print(f"   Validation target distribution: {y_val.value_counts().to_dict()}")
-    print(f"   Feature columns: {len(feature_cols)}")
+    if verbose:
+        print(f"Data processing completed!")
+        print(f"   Training features: {X_train.shape}")
+        print(f"   Validation features: {X_val.shape}")
+        print(f"   Test features: {X_test.shape}")
+        print(f"   Training target distribution: {y_train.value_counts().to_dict()}")
+        print(f"   Validation target distribution: {y_val.value_counts().to_dict()}")
+        print(f"   Feature columns: {len(feature_cols)}")
 
     return X_train, y_train, X_val, y_val, X_test

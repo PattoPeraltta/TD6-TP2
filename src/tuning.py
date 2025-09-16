@@ -107,7 +107,8 @@ class HyperoptTuner:
             
             if self.config['verbose']:
                 print(f"Trial {len(self.tuning_results)}: Temporal AUC = {mean_cv_score:.4f}")
-                print(f"  Params: {params}")
+                if self.config.get('verbose_params', False):
+                    print(f"  Params: {params}")
             
             # Return negative AUC (Hyperopt minimizes)
             return {
@@ -118,7 +119,8 @@ class HyperoptTuner:
             }
             
         except Exception as e:
-            print(f"Error in objective function: {e}")
+            if self.config['verbose']:
+                print(f"Error in objective function: {e}")
             return {
                 'loss': 0.0,
                 'status': STATUS_OK,
@@ -359,7 +361,7 @@ def run_complete_hyperopt_pipeline(
     Returns:
         tuning_results
     """
-    print("🚀 Starting Complete Hyperopt Hyperparameter Tuning Pipeline")
+    print("Starting Complete Hyperopt Hyperparameter Tuning Pipeline")
     print("=" * 60)
     
     # Initialize Hyperopt tuner
@@ -370,6 +372,6 @@ def run_complete_hyperopt_pipeline(
         X_train, y_train, X_val, y_val
     )
     
-    print("\n✅ Complete Hyperopt tuning pipeline finished successfully!")
+    print("\nComplete Hyperopt tuning pipeline finished successfully!")
     
     return tuning_results

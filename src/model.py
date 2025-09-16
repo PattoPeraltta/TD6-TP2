@@ -252,7 +252,8 @@ def create_final_submission(
     submission_path: str = None,
     test_obs_ids: pd.Series = None,
     auc_score: float = None,
-    pipeline_type: str = "full"
+    pipeline_type: str = "full",
+    verbose: bool = False
 ) -> Tuple[pd.DataFrame, str]:
     """
     Create the final submission file for the competition.
@@ -264,11 +265,13 @@ def create_final_submission(
         test_obs_ids: Actual obs_id values from test data (if None, uses sequential IDs)
         auc_score: Validation AUC score for filename generation
         pipeline_type: Type of pipeline for filename generation
+        verbose: Whether to print verbose output
     
     Returns:
         Tuple of (DataFrame with final predictions, submission file path)
     """
-    print("Creating final submission file...")
+    if verbose:
+        print("Creating final submission file...")
     
     # Make predictions
     predictions = model.predict_proba(X_test)[:, 1]
@@ -276,7 +279,8 @@ def create_final_submission(
     # Use actual obs_ids if provided, otherwise use sequential IDs
     if test_obs_ids is not None:
         obs_ids = test_obs_ids.values
-        print(f"Using actual obs_ids from test data (range: {obs_ids.min()} - {obs_ids.max()})")
+        if verbose:
+            print(f"Using actual obs_ids from test data (range: {obs_ids.min()} - {obs_ids.max()})")
     else:
         obs_ids = range(len(predictions))
     
@@ -298,5 +302,6 @@ def create_final_submission(
     
     # Save submission file
     submission_df.to_csv(submission_path, index=False)
-    print(f"Final submission saved to: {submission_path}")
+    if verbose:
+        print(f"Final submission saved to: {submission_path}")
     return submission_df, submission_path

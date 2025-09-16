@@ -22,29 +22,30 @@ warnings.filterwarnings('ignore')
 
 def load_and_prepare_data():
     """Load and prepare data using the unified make_data_with_features() function from data.py."""
-    print("📊 Loading and preparing data using unified make_data_with_features()...")
+    print("Loading and preparing data using unified make_data_with_features()...")
     
     try:
         # Use make_data_with_features() with config paths - this now includes all feature engineering
         X_train, y_train, X_val, y_val, X_test = make_data_with_features(
             train_path=str(TRAIN_PATH),
             test_path=str(TEST_PATH), 
-            track_data_path=str(SPOTIFY_API_DIR)
+            track_data_path=str(SPOTIFY_API_DIR),
+            verbose=False  # Enable verbose output
         )
         
         return X_train, y_train, X_val, y_val, X_test
         
     except Exception as e:
-        print(f"❌ Error loading data: {str(e)}")
+        print(f"ERROR: Error loading data: {str(e)}")
         import traceback
         traceback.print_exc()
         return None, None, None, None, None
 
 def encode_features(X_train, X_val, X_test):
     """Encode categorical features using ColumnTransformer WITHOUT test data leakage."""
-    print("🔧 Encoding categorical features with ColumnTransformer (NO LEAKAGE)...")
+    print("Encoding categorical features with ColumnTransformer...")
     
-    # Find categorical and numercial columns
+    # Find categorical and numerical columns
     num_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
     cat_cols = [c for c in X_train.columns if c not in num_cols]
     
@@ -98,16 +99,16 @@ def encode_features(X_train, X_val, X_test):
     X_val_encoded = X_val_encoded.astype(float)
     X_test_encoded = X_test_encoded.astype(float)
     
-    print(f"✅ ColumnTransformer encoding completed (NO LEAKAGE)!")
-    print(f"   Final training features: {X_train_encoded.shape}")
-    print(f"   Final validation features: {X_val_encoded.shape}")
-    print(f"   Final test features: {X_test_encoded.shape}")
+    print(f"ColumnTransformer encoding completed!")
+    print(f"  Final training features: {X_train_encoded.shape}")
+    print(f"  Final validation features: {X_val_encoded.shape}")
+    print(f"  Final test features: {X_test_encoded.shape}")
     
     return X_train_encoded, X_val_encoded, X_test_encoded
 
 def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
     """Train final model and create submission."""
-    print("\n🤖 Training final model and creating submission...")
+    print("\nStep 4: Training final model and creating submission")
     print("-" * 50)
     
     # Train final model with best parameters
@@ -115,7 +116,7 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
     best_model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
-        verbose=100
+        verbose=False  # Reduce verbose output
     )
     
     # Evaluate on validation set
@@ -131,7 +132,8 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
         submission_path=None,  # Will generate automatic name
         test_obs_ids=test_obs_ids,
         auc_score=val_auc,
-        pipeline_type="full"
+        pipeline_type="full",
+        verbose=False  # Enable verbose output
     )
     
     # Save model
@@ -145,62 +147,96 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
 def main():
     """Main function to run the unified pipeline."""
     
-    print("🚀 SPOTIFY SKIP PREDICTION - UNIFIED PIPELINE")
+    print("SPOTIFY SKIP PREDICTION - UNIFIED PIPELINE")
     print("=" * 60)
     
     try:
-        # 1ro: cargar data. (esto ya unifica la data de la api y agrega las features en features.py)
+        # Step 1: Load and prepare data
+        print("\nStep 1: Loading and preparing data")
+        print("-" * 50)
         X_train, y_train, X_val, y_val, X_test= load_and_prepare_data()
         if X_train is None:
             return False
         
-        # 2do: codificar features (para que todo sea numerico)
+        # Step 2: Encode features
+        print("\nStep 2: Encoding categorical features")
+        print("-" * 50)
         X_train_encoded, X_val_encoded, X_test_encoded = encode_features(X_train, X_val, X_test)
         
-        # (para ver las features finales)
-        print("TRAIN DATA:", X_train_encoded.head().T)
-        print("TEST DATA:", X_test_encoded.head().T)
+        # Display feature information
+        print(f"\nFeature Summary:")
+        print(f"  Total features: {X_train_encoded.shape[1]}")
+        print(f"  Training samples: {X_train_encoded.shape[0]:,}")
+        print(f"  Validation samples: {X_val_encoded.shape[0]:,}")
+        print(f"  Test samples: {X_test_encoded.shape[0]:,}")
+        
+        # Show feature columns
+        print(f"\nFeature Columns:")
+        feature_names = list(X_train_encoded.columns)
+        for i, col in enumerate(feature_names, 1):
+            if 'user_' in col and col.startswith('user_'):
+                # Group user features
+                if i == 1 or not any('user_' in feature_names[j] for j in range(i-1)):
+                    print(f"  {i}. One-hot encoding of users (10 features)")
+            else:
+                print(f"  {i}. {col}")
 
-        # 3ro: correr el tuning de hiperparametros con validacion temporal
-        # Combine training and validation data for tuner (it will split internally)
-  
+        # Step 3: Hyperparameter tuning
+        print("\nStep 3: Hyperparameter tuning")
+        print("-" * 50)
         tuning_results = run_complete_hyperopt_pipeline(
             X_train_encoded, y_train, X_val_encoded, y_val, TUNING_CONFIG
         )
         
-        # 4to: entrenar modelo final y generar archivo para kaggle
+        # Step 4: Train final model and create submission
+        print("\nStep 4: Preparing test data")
+        print("-" * 50)
         test_df_raw = pd.read_csv(str(TEST_PATH), sep='\t')
         test_obs_ids = test_df_raw['obs_id'].copy()
         
         best_model, submission_df, submission_path = train_final_model_and_create_submission(
             tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
+        
+        # Get feature importance
+        feature_importance = best_model.feature_importances_
+        importance_df = pd.DataFrame({
+            'feature': X_train_encoded.columns,
+            'importance': feature_importance
+        }).sort_values('importance', ascending=False)
     
-        # 5to: resumen de todo
+        # Final summary
         print("\n" + "=" * 60)
-        print("🎉 UNIFIED PIPELINE COMPLETED SUCCESSFULLY!")
+        print("UNIFIED PIPELINE COMPLETED SUCCESSFULLY")
         print("=" * 60)
-        print(f"📊 Best model performance:")
-        print(f"   Validation AUC: {tuning_results['best_score']:.4f}")
-        print(f"   Tuning time: {tuning_results['tuning_time']:.2f} seconds")
-        print(f"   Total trials tested: {len(tuning_results['tuning_results'])}")
+        print(f"Best Model Performance:")
+        print(f"  Validation AUC: {tuning_results['best_score']:.4f}")
+        print(f"  Tuning time: {tuning_results['tuning_time']:.2f} seconds")
+        print(f"  Total trials tested: {len(tuning_results['tuning_results'])}")
+        print(f"  Training samples: {X_train_encoded.shape[0]:,}")
+        print(f"  Validation samples: {X_val_encoded.shape[0]:,}")
+        print(f"  Test predictions: {len(test_obs_ids):,}")
         
-        print(f"\n📁 Output files:")
-        print(f"   - {submission_path} (main submission file)")
-        print(f"   - models/best_xgboost_model.pkl (best trained model)")
-        print(f"   - tuning_results/ (tuning results and visualizations)")
+        print(f"\nTop 10 Most Important Features:")
+        for i, (_, row) in enumerate(importance_df.head(10).iterrows(), 1):
+            print(f"  {i:2d}. {row['feature']:<30} {row['importance']:.4f}")
         
-        print(f"\n🔍 Top 3 parameter combinations:")
+        print(f"\nTop 3 Parameter Combinations:")
         tuner = HyperoptTuner()
         tuner.tuning_results = tuning_results['tuning_results']
         top_3 = tuner.get_top_parameters(3)
         for i, result in enumerate(top_3, 1):
-            print(f"   {i}. AUC: {result['mean_cv_score']:.4f}")
+            print(f"  {i}. AUC: {result['mean_cv_score']:.4f}")
+        
+        print(f"\nOutput Files:")
+        print(f"  - {submission_path} (main submission file)")
+        print(f"  - models/best_xgboost_model.pkl (best trained model)")
+        print(f"  - tuning_results/ (tuning results and visualizations)")
         
         return True
             
     except Exception as e:
-        print(f"❌ Pipeline failed with error: {str(e)}")
+        print(f"ERROR: Pipeline failed with error: {str(e)}")
         import traceback
         traceback.print_exc()
         return False
@@ -208,7 +244,7 @@ def main():
 if __name__ == "__main__":
     success = main()
     if success:
-        print("\n🎉 All done! Your submission file is ready.")
+        print("\nAll done! Your submission file is ready.")
     else:
-        print("\n💥 Pipeline failed. Please check the errors above.")
+        print("\nPipeline failed. Please check the errors above.")
         sys.exit(1)
