@@ -20,3 +20,5 @@ competition_data/
 *.pyc
 *.Rhistory
 *.png
+tempCodeRunnerFile.py
+*.pkl

@@ -8,24 +8,17 @@ import sys
 import os
 import pandas as pd
 import numpy as np
-from pathlib import Path
 import warnings
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
-warnings.filterwarnings('ignore')
-
-# Add src directory to path
-sys.path.append(str(Path(__file__).parent / "src"))
-
-from src.tuning import HyperparameterTuner, HyperoptTuner, create_submission_file
+from src.tuning import HyperoptTuner, run_complete_hyperopt_pipeline
 from src.model import create_final_submission
 from src.config import TUNING_CONFIG, TRAIN_PATH, TEST_PATH, SPOTIFY_API_DIR
-from data import make_data_with_features
+from src.data import make_data_with_features
 from xgboost import XGBClassifier
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import LabelEncoder
+warnings.filterwarnings('ignore')
 
 def load_and_prepare_data():
     """Load and prepare data using the unified make_data_with_features() function from data.py."""
@@ -47,7 +40,7 @@ def load_and_prepare_data():
         traceback.print_exc()
         return None, None, None, None, None
 
-def encode_features_properly(X_train, X_val, X_test):
+def encode_features(X_train, X_val, X_test):
     """Encode categorical features using ColumnTransformer WITHOUT test data leakage."""
     print("🔧 Encoding categorical features with ColumnTransformer (NO LEAKAGE)...")
     
@@ -60,8 +53,6 @@ def encode_features_properly(X_train, X_val, X_test):
     if len(cat_cols) == 0:
         print("No categorical columns found, returning original data")
         return X_train, X_val, X_test
-
-    # Split columns by dtype
     
     # Numeric pipeline
     num_pipe = Pipeline([
@@ -114,39 +105,6 @@ def encode_features_properly(X_train, X_val, X_test):
     
     return X_train_encoded, X_val_encoded, X_test_encoded
 
-def run_hyperparameter_tuning(X_train, y_train, X_val, y_val, X_test):
-    """Run hyperparameter tuning with proper temporal validation."""
-    print("🎛️  Starting hyperparameter tuning (TEMPORAL VALIDATION)...")
-    print("-" * 50)
-    
-    print(f"   Training set: {X_train.shape}")
-    print(f"   Validation set: {X_val.shape}")
-    
-    # Custom tuning configuration with stronger regularization
-    tuning_config = TUNING_CONFIG.copy()
-    tuning_config['n_trials'] = 35  # Increased for better search
-    tuning_config['cv_folds'] = 5  # Reduced for temporal validation
-    
-    print(f"Tuning configuration:")
-    print(f"   Search type: {tuning_config['search_type']}")
-    print(f"   Number of trials: {tuning_config['n_trials']}")
-    print(f"   CV folds: {tuning_config['cv_folds']}")
-    
-    # Initialize tuner
-    # tuner = HyperparameterTuner(tuning_config)
-    tuner = HyperoptTuner(tuning_config)
-
-    # Run tuning with temporal validation
-    tuning_results = tuner.tune_hyperparameters(
-        X_train, y_train, X_val, y_val
-    )
-    
-    print(f"\n🏆 Tuning completed!")
-    print(f"   Best CV AUC: {tuning_results['best_score']:.4f}")
-    print(f"   Best parameters: {tuning_results['best_params']}")
-    
-    return tuning_results
-
 def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
     """Train final model and create submission."""
     print("\n🤖 Training final model and creating submission...")
@@ -192,20 +150,22 @@ def main():
     
     try:
         # 1ro: cargar data. (esto ya unifica la data de la api y agrega las features en features.py)
-        X_train, y_train, X_val, y_val, X_test = load_and_prepare_data()
+        X_train, y_train, X_val, y_val, X_test= load_and_prepare_data()
         if X_train is None:
             return False
         
-        # 2do: codificar features (para que todo sea numerico) - SIN LEAKAGE
-        X_train_encoded, X_val_encoded, X_test_encoded = encode_features_properly(X_train, X_val, X_test)
+        # 2do: codificar features (para que todo sea numerico)
+        X_train_encoded, X_val_encoded, X_test_encoded = encode_features(X_train, X_val, X_test)
         
         # (para ver las features finales)
-        print("TRAIN DATA:",X_train_encoded.head().T)
-        print("TEST DATA:",X_test_encoded.head().T)
+        print("TRAIN DATA:", X_train_encoded.head().T)
+        print("TEST DATA:", X_test_encoded.head().T)
 
         # 3ro: correr el tuning de hiperparametros con validacion temporal
-        tuning_results = run_hyperparameter_tuning(
-            X_train_encoded, y_train, X_val_encoded, y_val, X_test_encoded
+        # Combine training and validation data for tuner (it will split internally)
+  
+        tuning_results = run_complete_hyperopt_pipeline(
+            X_train_encoded, y_train, X_val_encoded, y_val, TUNING_CONFIG
         )
         
         # 4to: entrenar modelo final y generar archivo para kaggle
@@ -231,7 +191,7 @@ def main():
         print(f"   - tuning_results/ (tuning results and visualizations)")
         
         print(f"\n🔍 Top 3 parameter combinations:")
-        tuner = HyperparameterTuner()
+        tuner = HyperoptTuner()
         tuner.tuning_results = tuning_results['tuning_results']
         top_3 = tuner.get_top_parameters(3)
         for i, result in enumerate(top_3, 1):

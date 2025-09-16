@@ -16,9 +16,9 @@ XGB_DEFAULT = dict(
 # Hyperparameter tuning configuration
 TUNING_CONFIG = {
     'search_type': 'random',  # 'grid' or 'random'
-    'n_trials': 30,  # Number of trials for random search
+    'n_trials': 100,  # Number of trials for random search
     'cv_folds': 5,  # Number of cross-validation folds
-    'early_stopping_rounds': 50,
+    'early_stopping_rounds': 150,
     'verbose': True,
     'save_best_model': True,
     'best_model_path': 'models/best_xgboost_model.pkl'

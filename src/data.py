@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from typing import Tuple
 from src.features import *
+from src.config import DATA_DIR
 
 def extract_track_features_no_leakage(data_dir: str, train_track_ids: set = None) -> pd.DataFrame:
     """Extract track features WITHOUT using test data for normalization statistics."""
@@ -160,8 +161,8 @@ def load_and_merge_track_features(train_path: str, test_path: str, features: pd.
     fwdbtn_col = train_df.pop('fwdbtn')
     train_df['fwdbtn'] = fwdbtn_col
 
-    train_df.to_csv("competition_data/raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv")
-    test_df.to_csv("competition_data/raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv")
+    train_df.to_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv"))
+    test_df.to_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv"))
 
     return train_df, test_df
 
@@ -198,7 +199,7 @@ def per_user_time_split(df: pd.DataFrame, train_frac: float = 0.8):
 
     return train_idx, val_idx
 
-def make_data_with_features(train_path: str, test_path: str, track_data_path: str) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame]:
+def make_data_with_features(train_path: str, test_path: str, track_data_path: str) -> Tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series, pd.DataFrame, np.ndarray, np.ndarray]:
     """
     Unified function that loads data, merges Spotify features, applies feature engineering,
     and returns train/validation/test splits ready for modeling.
@@ -206,8 +207,8 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
     print("🔄 Loading and merging Spotify features...")
 
     try:
-        train_df = pd.read_csv("competition_data/raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv")
-        test_df = pd.read_csv("competition_data/raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv")
+        train_df = pd.read_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv"))
+        test_df = pd.read_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv"))
         print("Found existing raw files with Spotify data!")
     except FileNotFoundError:
         print("Raw files with Spotify data not found, creating them...")

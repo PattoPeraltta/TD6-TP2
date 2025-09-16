@@ -53,7 +53,7 @@ def main():
             return False
         
         # 2do: codificar features (para que todo sea numerico) - SIN LEAKAGE
-        X_train_encoded, X_val_encoded, X_test_encoded = encode_features_properly(X_train, X_val, X_test)
+        X_train_encoded, X_val_encoded, X_test_encoded = encode_features(X_train, X_val, X_test)
         
         # (para ver las features finales)
         print("TRAIN DATA:",X_train_encoded.head().T)
@@ -69,7 +69,7 @@ def main():
         test_obs_ids = test_df_raw['obs_id'].copy()
 
         params = {
-                    'n_estimators': 400,
+                    'n_estimators': 200,
                     'learning_rate': 0.03,
                     'max_depth': 5,
                     'min_child_weight': 5,
