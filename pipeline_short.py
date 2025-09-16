@@ -17,8 +17,6 @@ def train_model_with_fixed_params(params, X_train, X_val, y_train, y_val, X_test
         verbose=False  # Reduce verbose output
     )
 
-    # from src.model import train_ensemble_model
-    # model = train_ensemble_model(X_train, y_train, X_val, y_val, verbose=True)
     
     # Evaluate on validation set
     y_val_pred = model.predict_proba(X_val)[:, 1]
@@ -105,15 +103,10 @@ def main():
             params, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
         
-        # Get feature importance (handle both single models and ensemble)
+        # Get feature importance
         if hasattr(best_model, 'feature_importances_'):
-            # Single model (XGBoost)
             feature_importance = best_model.feature_importances_
-        elif hasattr(best_model, 'get_feature_importances'):
-            # Ensemble model - use normalized importance (0-1 scale)
-            feature_importance = best_model.get_feature_importances(normalized=True)
         else:
-            # Fallback
             feature_importance = None
         
         if feature_importance is not None:

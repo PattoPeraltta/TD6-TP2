@@ -13,7 +13,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
-from src.tuning import HyperoptTuner, run_complete_hyperopt_pipeline, run_ensemble_hyperopt_pipeline
+from src.tuning import HyperoptTuner, run_complete_hyperopt_pipeline
 from src.model import create_final_submission
 from src.config import TUNING_CONFIG, TRAIN_PATH, TEST_PATH, SPOTIFY_API_DIR
 from src.data import make_data_with_features
@@ -185,25 +185,17 @@ def main():
         print("\nStep 3: Hyperparameter tuning")
         print("-" * 50)
         
-        # Choose tuning method: 'single' for XGBoost only, 'ensemble' for XGBoost+LightGBM+CatBoost
-        USE_ENSEMBLE_TUNING = True  # Set to False for single model tuning
+        # Configure tuning
+        tuning_config = {
+            'n_trials': 50,  # Adjust based on computational resources
+            'verbose': True
+        }
         
-        if USE_ENSEMBLE_TUNING:
-            print("Using ENSEMBLE hyperparameter tuning (XGBoost + LightGBM + CatBoost)")
-            # Configure ensemble tuning (fewer trials since we're tuning 3 models)
-            ensemble_config = {
-                'n_trials': 30,  # Adjust based on computational resources
-                'verbose': True
-            }
-            best_model, tuning_results = run_ensemble_hyperopt_pipeline(
-                X_train_encoded, y_train, X_val_encoded, y_val, ensemble_config
-            )
-        else:
-            print("Using SINGLE MODEL hyperparameter tuning (XGBoost only)")
-            tuning_results = run_complete_hyperopt_pipeline(
-                X_train_encoded, y_train, X_val_encoded, y_val, TUNING_CONFIG
-            )
-            best_model = None  # Will be created in train_final_model_and_create_submission
+        # Run hyperparameter tuning
+        tuning_results = run_complete_hyperopt_pipeline(
+            X_train_encoded, y_train, X_val_encoded, y_val, tuning_config
+        )
+        best_model = None  # Will be created in train_final_model_and_create_submission
         
         # Step 4: Train final model and create submission
         print("\nStep 4: Preparing test data")
@@ -211,33 +203,15 @@ def main():
         test_df_raw = pd.read_csv(str(TEST_PATH), sep='\t')
         test_obs_ids = test_df_raw['obs_id'].copy()
         
-        if USE_ENSEMBLE_TUNING:
-            # Ensemble model is already trained and ready
-            print("Using tuned ensemble model for final submission")
-            submission_df, submission_path = create_final_submission(
-                best_model, 
-                X_test_encoded, 
-                submission_path=None,
-                test_obs_ids=test_obs_ids,
-                auc_score=tuning_results['best_score'],
-                pipeline_type="ensemble_tuned",
-                verbose=True
-            )
-        else:
-            # Train final single model with best parameters
-            best_model, submission_df, submission_path = train_final_model_and_create_submission(
-                tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
-            )
+        # Train final single model with best parameters
+        best_model, submission_df, submission_path = train_final_model_and_create_submission(
+            tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
+        )
         
-        # Get feature importance (handle both single models and ensemble)
+        # Get feature importance
         if hasattr(best_model, 'feature_importances_'):
-            # Single model (XGBoost)
             feature_importance = best_model.feature_importances_
-        elif hasattr(best_model, 'get_feature_importances'):
-            # Ensemble model - use normalized importance (0-1 scale)
-            feature_importance = best_model.get_feature_importances(normalized=True)
         else:
-            # Fallback
             feature_importance = None
         
         if feature_importance is not None:
@@ -267,19 +241,12 @@ def main():
         else:
             print(f"\nFeature importance not available for this model type.")
         
-        if USE_ENSEMBLE_TUNING:
-            print(f"\nBest Ensemble Parameters:")
-            for model_name, params in tuning_results['best_model_params'].items():
-                print(f"  {model_name.upper()}:")
-                for param, value in params.items():
-                    print(f"    {param}: {value}")
-        else:
-            print(f"\nTop 3 Parameter Combinations:")
-            tuner = HyperoptTuner()
-            tuner.tuning_results = tuning_results['tuning_results']
-            top_3 = tuner.get_top_parameters(3)
-            for i, result in enumerate(top_3, 1):
-                print(f"  {i}. AUC: {result['mean_cv_score']:.4f}")
+        print(f"\nTop 3 Parameter Combinations:")
+        tuner = HyperoptTuner()
+        tuner.tuning_results = tuning_results['tuning_results']
+        top_3 = tuner.get_top_parameters(3)
+        for i, result in enumerate(top_3, 1):
+            print(f"  {i}. AUC: {result['mean_cv_score']:.4f}")
         
         print(f"\nOutput Files:")
         print(f"  - {submission_path} (main submission file)")
