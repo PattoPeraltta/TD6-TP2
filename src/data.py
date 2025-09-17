@@ -269,7 +269,7 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
     test_df_processed['per_user_skip_rate'] = test_df_temp_with_skip_rate['per_user_skip_rate']
 
     # Define feature columns (exclude target and ID columns)
-    exclude_cols = ['reason_end', 'obs_id', 'username', 'ts', 'offline_timestamp', 'fwdbtn']
+    exclude_cols = ['reason_end', 'obs_id', 'ts', 'offline_timestamp', 'fwdbtn']
     feature_cols = [col for col in train_df_processed.columns if col not in exclude_cols]
 
     # Handle missing values in features WITHOUT test data leakage

@@ -81,34 +81,6 @@ def add_platform(df: pd.DataFrame) -> pd.DataFrame:
     df['platform'] = df['platform'].apply(map_platform)
     return df
 
-def add_ohe_usernames(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
-    """Add one-hot encoding for usernames (since there are only 10 users)."""
-    df = df.copy()
-    
-    # Check if username column exists
-    if 'username' not in df.columns:
-        if verbose:
-            print("Warning: username column not found, skipping OHE for usernames")
-        return df
-    
-    # Get unique usernames
-    unique_usernames = df['username'].unique()
-    if verbose:
-        print(f"Found {len(unique_usernames)} unique usernames for one-hot encoding")
-    
-    # Create one-hot encoded columns for each username
-    for username in unique_usernames:
-        col_name = f'user_{username}'
-        df[col_name] = (df['username'] == username).astype('int8')
-    
-    # Drop the original username column
-    df = df.drop(columns=['username'])
-    
-    if verbose:
-        print(f"Created {len(unique_usernames)} one-hot encoded username features")
-    
-    return df
-
 def add_per_user_skip_rate(train_df: pd.DataFrame, test_df: pd.DataFrame, train_idx: np.ndarray, val_idx: np.ndarray) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
 
     # Create training subset for calculating user skip rates
@@ -136,11 +108,6 @@ def make_features(df: pd.DataFrame, include_username_ohe: bool = True, verbose: 
     df = add_track_order_in_day(df)
     df = add_track_features(df)
     df = add_platform(df)
-    
-    # Only add one-hot encoding for usernames if requested (for final features)
-    # Keep original username column for temporal splitting
-    if include_username_ohe:
-        df = add_ohe_usernames(df, verbose=verbose)  # Add one-hot encoding for usernames
     
     df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri', 'Unnamed: 0'], inplace=True)
     return df
