@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 def clean_nulls(df: pd.DataFrame) -> pd.DataFrame:
     return df.dropna(axis=1, how='all')
@@ -152,48 +153,56 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
         df[f'songs_skipped_{window_name}'] = 0
         df[f'songs_not_skipped_{window_name}'] = 0
     
+    # Get unique users and create progress bar
+    unique_users = df['username'].unique()
+    if verbose:
+        print(f"  Processing {len(unique_users)} users...")
+        user_progress = tqdm(unique_users, desc="Processing users")
+    else:
+        user_progress = unique_users
+    
     # Group by user for efficient processing
-    for username in df['username'].unique():
-        if verbose and len(df['username'].unique()) > 100:
-            # Only print progress for large datasets
-            user_idx = list(df['username'].unique()).index(username)
-            if user_idx % 100 == 0:
-                print(f"  Processing user {user_idx+1}/{len(df['username'].unique())}")
-        
+    for username in user_progress:
         # Get user data sorted by timestamp
         user_mask = df['username'] == username
         user_df = df[user_mask].sort_values('ts').copy()
-        user_indices = df[user_mask].sort_values('ts').index
+        user_indices = user_df.index.tolist()
         
-        # For each observation, count songs in time windows
-        for i, (idx, row) in enumerate(user_df.iterrows()):
-            current_time = row['ts']
+        # Convert to numpy arrays for faster processing
+        timestamps = user_df['ts'].values
+        is_skipped = user_df['is_skipped'].values
+        is_not_skipped = user_df['is_not_skipped'].values
+        
+        # For each observation, count songs in time windows using vectorized operations
+        for i in range(len(user_df)):
+            current_time = timestamps[i]
             
-            # Look at all previous songs for this user (including current)
-            # This ensures we don't use future information
-            past_songs = user_df[user_df['ts'] <= current_time]
+            # Calculate time thresholds for all windows
+            time_thresholds = [current_time - pd.Timedelta(minutes=window_minutes) 
+                              for window_minutes in time_windows.values()]
             
-            for window_name, window_minutes in time_windows.items():
-                # Calculate time threshold
-                time_threshold = current_time - pd.Timedelta(minutes=window_minutes)
+            # Find all songs up to current time (inclusive) - this is the past_songs
+            past_mask = timestamps <= current_time
+            past_indices = np.where(past_mask)[0]
+            
+            # For each time window, count songs efficiently
+            for j, (window_name, window_minutes) in enumerate(time_windows.items()):
+                time_threshold = time_thresholds[j]
                 
-                # Filter songs within the time window
-                window_songs = past_songs[past_songs['ts'] >= time_threshold]
+                # Find songs within the time window (but exclude current song)
+                window_mask = (timestamps >= time_threshold) & (timestamps < current_time)
+                window_indices = np.where(window_mask)[0]
                 
                 # Count different types of songs
-                total_count = len(window_songs) - 1  # -1 to exclude current song itself
-                skipped_count = window_songs['is_skipped'].sum() - row['is_skipped']  # -1 to exclude current song
-                not_skipped_count = window_songs['is_not_skipped'].sum() - row['is_not_skipped']  # -1 to exclude current song
-                
-                # Ensure non-negative counts
-                total_count = max(0, total_count)
-                skipped_count = max(0, skipped_count)
-                not_skipped_count = max(0, not_skipped_count)
+                total_count = len(window_indices)
+                skipped_count = np.sum(is_skipped[window_indices]) if len(window_indices) > 0 else 0
+                not_skipped_count = np.sum(is_not_skipped[window_indices]) if len(window_indices) > 0 else 0
                 
                 # Assign values back to original dataframe
-                df.loc[idx, f'songs_total_{window_name}'] = total_count
-                df.loc[idx, f'songs_skipped_{window_name}'] = skipped_count
-                df.loc[idx, f'songs_not_skipped_{window_name}'] = not_skipped_count
+                original_idx = user_indices[i]
+                df.loc[original_idx, f'songs_total_{window_name}'] = total_count
+                df.loc[original_idx, f'songs_skipped_{window_name}'] = skipped_count
+                df.loc[original_idx, f'songs_not_skipped_{window_name}'] = not_skipped_count
     
     # Remove temporary columns
     df.drop(columns=['is_skipped', 'is_not_skipped'], inplace=True)
@@ -211,7 +220,8 @@ def make_features(df: pd.DataFrame, include_username_ohe: bool = True, verbose: 
     df = add_track_order_in_day(df)
     df = add_track_features(df)
     df = add_platform(df)
+    print("hola no me bugie")
     df = add_bin_counting(df, verbose=verbose)
-    
+    print("hola no me bugie 2")
     df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri', 'Unnamed: 0'], inplace=True)
     return df
