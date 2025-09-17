@@ -102,12 +102,116 @@ def add_per_user_skip_rate(train_df: pd.DataFrame, test_df: pd.DataFrame, train_
 
     return train_df, test_df
 
+def add_bin_counting(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+    """
+    Add bin counting features for user listening activity in different time windows.
+    
+    For each observation, counts:
+    - Total songs played in the last 20min, 1h, 6h, 12h, 24h
+    - Total songs skipped in the last 20min, 1h, 6h, 12h, 24h  
+    - Total songs not skipped in the last 20min, 1h, 6h, 12h, 24h
+    
+    Args:
+        df: DataFrame with columns ['ts', 'username', 'reason_end']
+        verbose: Whether to print progress information
+        
+    Returns:
+        DataFrame with additional bin counting features
+    """
+    if verbose:
+        print("Adding bin counting features...")
+    
+    df = df.copy()
+    
+    # Ensure ts is datetime
+    df['ts'] = pd.to_datetime(df['ts'])
+    
+    # Create skip indicator (1 = skipped/fwdbtn, 0 = not skipped)
+    # Handle both original 'reason_end' column and processed 'fwdbtn' column
+    if 'reason_end' in df.columns:
+        df['is_skipped'] = (df['reason_end'] == 'fwdbtn').astype(int)
+        df['is_not_skipped'] = (df['reason_end'] != 'fwdbtn').astype(int)
+    elif 'fwdbtn' in df.columns:
+        df['is_skipped'] = df['fwdbtn'].astype(int)
+        df['is_not_skipped'] = (1 - df['fwdbtn']).astype(int)
+    else:
+        raise ValueError("Neither 'reason_end' nor 'fwdbtn' column found in dataframe")
+    
+    # Define time windows in minutes
+    time_windows = {
+        '20min': 20,
+        '1h': 60, 
+        '6h': 360,
+        '12h': 720,
+        '24h': 1440
+    }
+    
+    # Initialize feature columns
+    for window_name in time_windows.keys():
+        df[f'songs_total_{window_name}'] = 0
+        df[f'songs_skipped_{window_name}'] = 0
+        df[f'songs_not_skipped_{window_name}'] = 0
+    
+    # Group by user for efficient processing
+    for username in df['username'].unique():
+        if verbose and len(df['username'].unique()) > 100:
+            # Only print progress for large datasets
+            user_idx = list(df['username'].unique()).index(username)
+            if user_idx % 100 == 0:
+                print(f"  Processing user {user_idx+1}/{len(df['username'].unique())}")
+        
+        # Get user data sorted by timestamp
+        user_mask = df['username'] == username
+        user_df = df[user_mask].sort_values('ts').copy()
+        user_indices = df[user_mask].sort_values('ts').index
+        
+        # For each observation, count songs in time windows
+        for i, (idx, row) in enumerate(user_df.iterrows()):
+            current_time = row['ts']
+            
+            # Look at all previous songs for this user (including current)
+            # This ensures we don't use future information
+            past_songs = user_df[user_df['ts'] <= current_time]
+            
+            for window_name, window_minutes in time_windows.items():
+                # Calculate time threshold
+                time_threshold = current_time - pd.Timedelta(minutes=window_minutes)
+                
+                # Filter songs within the time window
+                window_songs = past_songs[past_songs['ts'] >= time_threshold]
+                
+                # Count different types of songs
+                total_count = len(window_songs) - 1  # -1 to exclude current song itself
+                skipped_count = window_songs['is_skipped'].sum() - row['is_skipped']  # -1 to exclude current song
+                not_skipped_count = window_songs['is_not_skipped'].sum() - row['is_not_skipped']  # -1 to exclude current song
+                
+                # Ensure non-negative counts
+                total_count = max(0, total_count)
+                skipped_count = max(0, skipped_count)
+                not_skipped_count = max(0, not_skipped_count)
+                
+                # Assign values back to original dataframe
+                df.loc[idx, f'songs_total_{window_name}'] = total_count
+                df.loc[idx, f'songs_skipped_{window_name}'] = skipped_count
+                df.loc[idx, f'songs_not_skipped_{window_name}'] = not_skipped_count
+    
+    # Remove temporary columns
+    df.drop(columns=['is_skipped', 'is_not_skipped'], inplace=True)
+    
+    if verbose:
+        print(f"  Added {len(time_windows) * 3} bin counting features")
+        print(f"  Time windows: {list(time_windows.keys())}")
+        print(f"  Feature types: total songs, skipped songs, not skipped songs")
+    
+    return df
+
 def make_features(df: pd.DataFrame, include_username_ohe: bool = True, verbose: bool = False) -> pd.DataFrame:
     df = clean_nulls(df)
     df = add_temporal(df)
     df = add_track_order_in_day(df)
     df = add_track_features(df)
     df = add_platform(df)
+    df = add_bin_counting(df, verbose=verbose)
     
     df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri', 'Unnamed: 0'], inplace=True)
     return df
