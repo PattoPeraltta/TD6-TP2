@@ -52,7 +52,12 @@ def main():
         # Step 1: Load and prepare data
         print("\nStep 1: Loading and preparing data")
         print("-" * 50)
-        X_train, y_train, X_val, y_val, X_test = load_and_prepare_data()
+        X_train, y_train, X_val, y_val, X_test = make_data_with_features(
+            train_path=str(TRAIN_PATH),
+            test_path=str(TEST_PATH), 
+            track_data_path=str(SPOTIFY_API_DIR),
+            verbose=False  # Enable verbose output
+        )
         if X_train is None:
             return False
         

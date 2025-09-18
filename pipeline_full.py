@@ -20,27 +20,6 @@ from src.data import make_data_with_features
 from xgboost import XGBClassifier
 warnings.filterwarnings('ignore')
 
-def load_and_prepare_data():
-    """Load and prepare data using the unified make_data_with_features() function from data.py."""
-    print("Loading and preparing data using unified make_data_with_features()...")
-    
-    try:
-        # Use make_data_with_features() with config paths - this now includes all feature engineering
-        X_train, y_train, X_val, y_val, X_test = make_data_with_features(
-            train_path=str(TRAIN_PATH),
-            test_path=str(TEST_PATH), 
-            track_data_path=str(SPOTIFY_API_DIR),
-            verbose=False  # Enable verbose output
-        )
-        
-        return X_train, y_train, X_val, y_val, X_test
-        
-    except Exception as e:
-        print(f"ERROR: Error loading data: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return None, None, None, None, None
-
 def encode_features(X_train, X_val, X_test):
     """Encode categorical features using ColumnTransformer WITHOUT test data leakage."""
     print("Encoding categorical features with ColumnTransformer...")
@@ -154,7 +133,11 @@ def main():
         # Step 1: Load and prepare data
         print("\nStep 1: Loading and preparing data")
         print("-" * 50)
-        X_train, y_train, X_val, y_val, X_test= load_and_prepare_data()
+        X_train, y_train, X_val, y_val, X_test = make_data_with_features(train_path=str(TRAIN_PATH),
+            test_path=str(TEST_PATH), 
+            track_data_path=str(SPOTIFY_API_DIR),
+            verbose=False  # Enable verbose output
+        )
         if X_train is None:
             return False
         
