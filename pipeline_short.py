@@ -59,7 +59,7 @@ def main():
                     'eval_metric': 'auc'
                 }
         
-        best_model, submission_df, submission_path = train_final_model_and_create_submission(
+        best_model, submission_path = train_final_model_and_create_submission(
             params, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
         

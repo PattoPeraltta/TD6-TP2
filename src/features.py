@@ -111,8 +111,9 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
     Add bin counting features for user listening activity in different time windows.
     
     For each observation, counts:
-    - Total songs played in the last 20min, 1h, 6h, 12h, 24h
-    - Total songs skipped in the last 20min, 1h, 6h, 12h, 24h  
+    - Total songs played in the last 20min (same discrete bin), 40min, 1h, 6h, 12h, 24h
+    - Note: 20min window counts all songs in the same discrete 20-minute time bin
+    - Other windows count songs in the specified time period excluding the current song
     
     Args:
         df: DataFrame with columns ['ts', 'username'] and optionally 'fwdbtn'
@@ -158,19 +159,10 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
     # Ensure ts is datetime
     df['ts'] = pd.to_datetime(df['ts'])
     
-    # Create skip indicator (1 = skipped/fwdbtn, 0 = not skipped)
-    # Handle both original 'reason_end' column and processed 'fwdbtn' column
-    if 'fwdbtn' in df.columns:
-        df['is_skipped'] = df['fwdbtn'].astype(int)
-    elif 'reason_end' in df.columns:
-        df['is_skipped'] = df['reason_end'].apply(lambda x: 1 if x == 'fwdbtn' else 0)
-    else:
-        # For test data without skip information, set all to 0
-        df['is_skipped'] = 0
-    
     # Define time windows in minutes
     time_windows = {
         '20min': 20,
+        '40min': 40,
         '1h': 60, 
         '6h': 360,
         '12h': 720,
@@ -180,7 +172,6 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
     # Initialize feature columns
     for window_name in time_windows.keys():
         df[f'songs_total_{window_name}'] = 0
-        df[f'songs_skipped_{window_name}'] = 0
     
     # Get unique users and create progress bar
     unique_users = df['username'].unique()
@@ -199,7 +190,6 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
         
         # Convert to numpy arrays for faster processing
         timestamps = user_df['ts'].values
-        is_skipped = user_df['is_skipped'].values
         
         # For each observation, count songs in time windows using vectorized operations
         for i in tqdm(range(len(user_df))):
@@ -217,21 +207,23 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
             for j, (window_name, window_minutes) in enumerate(time_windows.items()):
                 time_threshold = time_thresholds[j]
                 
-                # Find songs within the time window (but exclude current song)
-                window_mask = (timestamps >= time_threshold) & (timestamps < current_time)
+                if window_name == '20min':
+                    # For 20min window, count all songs in the same discrete 20-minute bin
+                    # Round current_time to the nearest 20-minute interval
+                    current_time_rounded = pd.Timestamp(current_time).floor('20min')
+                    window_mask = timestamps >= current_time_rounded
+                else:
+                    # For other windows, use standard logic (exclude current song)
+                    window_mask = (timestamps >= time_threshold) & (timestamps < current_time)
+                
                 window_indices = np.where(window_mask)[0]
                 
                 # Count different types of songs
                 total_count = len(window_indices)
-                skipped_count = np.sum(is_skipped[window_indices]) if len(window_indices) > 0 else 0
                 
                 # Assign values back to original dataframe
                 original_idx = user_indices[i]
                 df.loc[original_idx, f'songs_total_{window_name}'] = total_count
-                df.loc[original_idx, f'songs_skipped_{window_name}'] = skipped_count
-    
-    # Remove temporary columns
-    df.drop(columns=['is_skipped'], inplace=True)
     
     # Save to cache
     try:
@@ -244,13 +236,12 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
             print(f"Warning: Could not save cache file: {e}")
     
     if verbose:
-        print(f"  Added {len(time_windows) * 2} bin counting features")
+        print(f"  Added {len(time_windows)} bin counting features")
         print(f"  Time windows: {list(time_windows.keys())}")
-        print(f"  Feature types: total songs, skipped songs")
     
     return df
 
-def make_features(df: pd.DataFrame, include_username_ohe: bool = True, verbose: bool = False) -> pd.DataFrame:
+def make_features(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     df = clean_nulls(df)
     df = add_temporal(df)
     df = add_track_order_in_day(df)

@@ -121,7 +121,7 @@ def train_final_model_and_create_submission(params, X_train, X_val, y_train, y_v
     joblib.dump(best_model, "models/best_xgboost_model.pkl")
     print(f"Model saved to: models/best_xgboost_model.pkl")
     
-    return best_model, submission_df, submission_path
+    return best_model, submission_path
 
 def print_columns(df: pd.DataFrame):
     print(f"\nFeature Columns:")
@@ -189,7 +189,7 @@ def main():
         test_obs_ids = test_df_raw['obs_id'].copy()
         
         # Train final single model with best parameters
-        best_model, submission_df, submission_path = train_final_model_and_create_submission(
+        best_model, submission_path = train_final_model_and_create_submission(
             tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
         

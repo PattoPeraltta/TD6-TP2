@@ -240,13 +240,13 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
 
     if verbose:
         print("Applying feature engineering...")
-    # Apply feature engineering WITHOUT username OHE first (to keep username for temporal split)
-    train_df_temp = make_features(train_df.copy(), include_username_ohe=False, verbose=verbose)
-    test_df_temp = make_features(test_df.copy(), include_username_ohe=False, verbose=verbose)
+    # Apply feature engineering
+    train_df_temp = make_features(train_df.copy(), verbose=verbose)
+    test_df_temp = make_features(test_df.copy(), verbose=verbose)
     
     if verbose:
         print("Creating train/validation split...")
-    # Create temporal split using username column (before OHE)
+    # Create temporal split
     train_idx, val_idx = per_user_time_split(train_df_temp, train_frac=0.8)
     
     if verbose:
@@ -261,12 +261,12 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
 
     if verbose:
         print("Adding username one-hot encoding to final features...")
-    # Now apply full feature engineering including username OHE
-    train_df_processed = make_features(train_df.copy(), include_username_ohe=True, verbose=verbose)
-    test_df_processed = make_features(test_df.copy(), include_username_ohe=True, verbose=verbose)
+    # Now apply full feature engineering
+    train_df_processed = make_features(train_df.copy(), verbose=verbose)
+    test_df_processed = make_features(test_df.copy(), verbose=verbose)
 
-    train_df_processed['per_user_skip_rate'] = train_df_temp_with_skip_rate['per_user_skip_rate']
-    test_df_processed['per_user_skip_rate'] = test_df_temp_with_skip_rate['per_user_skip_rate']
+    # train_df_processed['per_user_skip_rate'] = train_df_temp_with_skip_rate['per_user_skip_rate']
+    # test_df_processed['per_user_skip_rate'] = test_df_temp_with_skip_rate['per_user_skip_rate']
 
     # Define feature columns (exclude target and ID columns)
     exclude_cols = ['reason_end', 'obs_id', 'ts', 'offline_timestamp', 'fwdbtn']
