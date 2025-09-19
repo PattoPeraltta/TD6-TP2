@@ -9,10 +9,12 @@ import os
 import pandas as pd
 import numpy as np
 import warnings
+import joblib
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder
+from sklearn.metrics import roc_auc_score
 from src.tuning import HyperoptTuner, run_complete_hyperopt_pipeline
 from src.model import create_final_submission
 from src.config import TUNING_CONFIG, TRAIN_PATH, TEST_PATH, SPOTIFY_API_DIR
@@ -85,13 +87,13 @@ def encode_features(X_train, X_val, X_test):
     
     return X_train_encoded, X_val_encoded, X_test_encoded
 
-def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
+def train_final_model_and_create_submission(params, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
     """Train final model and create submission."""
     print("\nStep 4: Training final model and creating submission")
     print("-" * 50)
     
     # Train final model with best parameters
-    best_model = XGBClassifier(**tuning_results['best_params'])
+    best_model = XGBClassifier(**params)
     best_model.fit(
         X_train, y_train,
         eval_set=[(X_val, y_val)],
@@ -99,7 +101,6 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
     )
     
     # Evaluate on validation set
-    from sklearn.metrics import roc_auc_score
     y_val_pred = best_model.predict_proba(X_val)[:, 1]
     val_auc = roc_auc_score(y_val, y_val_pred)
     print(f"Final validation AUC: {val_auc:.4f}")
@@ -116,12 +117,22 @@ def train_final_model_and_create_submission(tuning_results, X_train, X_val, y_tr
     )
     
     # Save model
-    import joblib
     os.makedirs("models", exist_ok=True)
     joblib.dump(best_model, "models/best_xgboost_model.pkl")
     print(f"Model saved to: models/best_xgboost_model.pkl")
     
     return best_model, submission_df, submission_path
+
+def print_columns(df: pd.DataFrame):
+    print(f"\nFeature Columns:")
+    feature_names = list(df.columns)
+    for i, col in enumerate(feature_names, 1):
+        if 'user_' in col and col.startswith('user_'):
+            # Group user features
+            if i == 1 or not any('user_' in feature_names[j] for j in range(i-1)):
+                print(f"  {i}. One-hot encoding of users (10 features)")
+        else:
+            print(f"  {i}. {col}")
 
 def main():
     """Main function to run the unified pipeline."""
@@ -154,15 +165,7 @@ def main():
         print(f"  Test samples: {X_test_encoded.shape[0]:,}")
         
         # Show feature columns
-        print(f"\nFeature Columns:")
-        feature_names = list(X_train_encoded.columns)
-        for i, col in enumerate(feature_names, 1):
-            if 'user_' in col and col.startswith('user_'):
-                # Group user features
-                if i == 1 or not any('user_' in feature_names[j] for j in range(i-1)):
-                    print(f"  {i}. One-hot encoding of users (10 features)")
-            else:
-                print(f"  {i}. {col}")
+        print_columns(X_train_encoded)
 
         # Step 3: Hyperparameter tuning
         print("\nStep 3: Hyperparameter tuning")
@@ -178,7 +181,6 @@ def main():
         tuning_results = run_complete_hyperopt_pipeline(
             X_train_encoded, y_train, X_val_encoded, y_val, tuning_config
         )
-        best_model = None  # Will be created in train_final_model_and_create_submission
         
         # Step 4: Train final model and create submission
         print("\nStep 4: Preparing test data")

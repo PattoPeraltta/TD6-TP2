@@ -4,43 +4,6 @@ from sklearn.metrics import roc_auc_score
 import joblib
 import os
 
-def train_model_with_fixed_params(params, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
-    """Train model with fixed parameters and create submission."""
-    print("\nStep 4: Training model with fixed parameters")
-    print("-" * 50)
-    
-    # Train model with fixed parameters
-    model = XGBClassifier(**params)
-    model.fit(
-        X_train, y_train,
-        eval_set=[(X_val, y_val)],
-        verbose=False  # Reduce verbose output
-    )
-
-    
-    # Evaluate on validation set
-    y_val_pred = model.predict_proba(X_val)[:, 1]
-    val_auc = roc_auc_score(y_val, y_val_pred)
-    print(f"Validation AUC: {val_auc:.4f}")
-    
-    # Create submission with correct obs_ids and automatic naming
-    from src.model import create_final_submission
-    submission_df, submission_path = create_final_submission(
-        model, 
-        X_test, 
-        submission_path=None,  # Will generate automatic name
-        test_obs_ids=test_obs_ids,
-        auc_score=val_auc,
-        pipeline_type="short",
-        verbose=False  # Enable verbose output
-    )
-    
-    # Save model
-    os.makedirs("models", exist_ok=True)
-    joblib.dump(model, "models/best_xgboost_model.pkl")
-    print(f"Model saved to: models/best_xgboost_model.pkl")
-    
-    return model, submission_df, submission_path
 
 def main():
     """Main function to run the short pipeline."""
@@ -74,15 +37,7 @@ def main():
         print(f"  Test samples: {X_test_encoded.shape[0]:,}")
         
         # Show feature columns
-        print(f"\nFeature Columns:")
-        feature_names = list(X_train_encoded.columns)
-        for i, col in enumerate(feature_names, 1):
-            if 'user_' in col and col.startswith('user_'):
-                # Group user features
-                if i == 1 or not any('user_' in feature_names[j] for j in range(i-1)):
-                    print(f"  {i}. One-hot encoding of users (10 features)")
-            else:
-                print(f"  {i}. {col}")
+        print_columns(X_train_encoded)
         
         # Step 3: Load test observation IDs
         print("\nStep 3: Preparing test data")
@@ -104,7 +59,7 @@ def main():
                     'eval_metric': 'auc'
                 }
         
-        best_model, submission_df, submission_path = train_model_with_fixed_params(
+        best_model, submission_df, submission_path = train_final_model_and_create_submission(
             params, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
         )
         
