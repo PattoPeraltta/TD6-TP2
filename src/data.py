@@ -132,44 +132,44 @@ def load_and_merge_track_features(train_path: str, test_path: str, features: pd.
     train_df = pd.read_csv(train_path, sep='\t')
     test_df = pd.read_csv(test_path,  sep='\t')
 
-    # Extract track_id from spotify_track_uri
-    train_df['track_id'] = train_df['spotify_track_uri'].str.replace('spotify:track:', '')
-    test_df['track_id'] = test_df['spotify_track_uri'].str.replace('spotify:track:', '')
+    # # Extract track_id from spotify_track_uri
+    # train_df['track_id'] = train_df['spotify_track_uri'].str.replace('spotify:track:', '')
+    # test_df['track_id'] = test_df['spotify_track_uri'].str.replace('spotify:track:', '')
 
-    n_train = len(train_df)
-    train_df = train_df.merge(features, on='track_id', how='left')
-    test_df = test_df.merge(features, on='track_id',  how='left')
+    # n_train = len(train_df)
+    # train_df = train_df.merge(features, on='track_id', how='left')
+    # test_df = test_df.merge(features, on='track_id',  how='left')
 
-    cov = train_df["duration_normalized"].notna().mean()
-    if verbose:
-        print(f"[merge] feature coverage on train: {cov:.1%} ({train_df['duration_normalized'].notna().sum()}/{n_train})")
+    # cov = train_df["duration_normalized"].notna().mean()
+    # if verbose:
+    #     print(f"[merge] feature coverage on train: {cov:.1%} ({train_df['duration_normalized'].notna().sum()}/{n_train})")
 
-    boolean_columns = ['explicit', 'shuffle', 'offline', 'incognito_mode']
-    for col in boolean_columns:
-        if col in train_df.columns:
-            # Fill NaN values with 0 (False) before converting to int
-            train_df[col] = train_df[col].fillna(0).astype("int8")
-        if col in test_df.columns:
-            test_df[col] = test_df[col].fillna(0).astype("int8")
+    # boolean_columns = ['explicit', 'shuffle', 'offline', 'incognito_mode']
+    # for col in boolean_columns:
+    #     if col in train_df.columns:
+    #         # Fill NaN values with 0 (False) before converting to int
+    #         train_df[col] = train_df[col].fillna(0).astype("int8")
+    #     if col in test_df.columns:
+    #         test_df[col] = test_df[col].fillna(0).astype("int8")
 
-    categorical_columns = ['platform', 'conn_country', 'album_type', 'username']
-    for col in categorical_columns:
-        if col in train_df.columns:
-            # Fill NaN values with 'unknown' before converting to category
-            train_df[col] = train_df[col].fillna('unknown').astype('category')
-        if col in test_df.columns:
-            test_df[col] = test_df[col].fillna('unknown').astype('category')
+    # categorical_columns = ['platform', 'conn_country', 'album_type', 'username']
+    # for col in categorical_columns:
+    #     if col in train_df.columns:
+    #         # Fill NaN values with 'unknown' before converting to category
+    #         train_df[col] = train_df[col].fillna('unknown').astype('category')
+    #     if col in test_df.columns:
+    #         test_df[col] = test_df[col].fillna('unknown').astype('category')
 
-    # Cambiamos la columna reason_end a 1 (fwdbtn) o 0 (otro)
-    train_df['reason_end'] = train_df['reason_end'].apply(lambda x: 1 if x == 'fwdbtn' else 0)
-    train_df.rename(columns={'reason_end': 'fwdbtn'}, inplace=True)
+    # # Cambiamos la columna reason_end a 1 (fwdbtn) o 0 (otro)
+    # train_df['reason_end'] = train_df['reason_end'].apply(lambda x: 1 if x == 'fwdbtn' else 0)
+    # train_df.rename(columns={'reason_end': 'fwdbtn'}, inplace=True)
 
-    # Move the 'fwdbtn' column to the end
-    fwdbtn_col = train_df.pop('fwdbtn')
-    train_df['fwdbtn'] = fwdbtn_col
+    # # Move the 'fwdbtn' column to the end
+    # fwdbtn_col = train_df.pop('fwdbtn')
+    # train_df['fwdbtn'] = fwdbtn_col
 
-    train_df.to_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv"))
-    test_df.to_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv"))
+    # train_df.to_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/train_data_raw_with_spotify_api_data.csv"))
+    # test_df.to_csv(os.path.join(DATA_DIR, "raw_with_spotify_api_data/test_data_raw_with_spotify_api_data.csv"))
 
     return train_df, test_df
 
@@ -241,8 +241,8 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
     if verbose:
         print("Applying feature engineering...")
     # Apply feature engineering
-    train_df_temp = make_features(train_df.copy(), verbose=verbose)
-    test_df_temp = make_features(test_df.copy(), verbose=verbose)
+    train_df_temp = add_all_features(train_df.copy(), verbose=verbose)
+    test_df_temp = add_all_features(test_df.copy(), verbose=verbose)
     
     if verbose:
         print("Creating train/validation split...")
@@ -262,11 +262,11 @@ def make_data_with_features(train_path: str, test_path: str, track_data_path: st
     if verbose:
         print("Adding username one-hot encoding to final features...")
     # Now apply full feature engineering
-    train_df_processed = make_features(train_df.copy(), verbose=verbose)
-    test_df_processed = make_features(test_df.copy(), verbose=verbose)
+    train_df_processed = add_all_features(train_df.copy(), verbose=verbose)
+    test_df_processed = add_all_features(test_df.copy(), verbose=verbose)
 
-    # train_df_processed['per_user_skip_rate'] = train_df_temp_with_skip_rate['per_user_skip_rate']
-    # test_df_processed['per_user_skip_rate'] = test_df_temp_with_skip_rate['per_user_skip_rate']
+    train_df_processed['per_user_skip_rate'] = train_df_temp_with_skip_rate['per_user_skip_rate']
+    test_df_processed['per_user_skip_rate'] = test_df_temp_with_skip_rate['per_user_skip_rate']
 
     # Define feature columns (exclude target and ID columns)
     exclude_cols = ['reason_end', 'obs_id', 'ts', 'offline_timestamp', 'fwdbtn']

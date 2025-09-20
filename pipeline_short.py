@@ -60,7 +60,7 @@ def main():
                 }
         
         best_model, submission_path = train_final_model_and_create_submission(
-            params, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
+            params, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids, pipeline_type="short"
         )
         
         # Get feature importance

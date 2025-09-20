@@ -87,7 +87,7 @@ def encode_features(X_train, X_val, X_test):
     
     return X_train_encoded, X_val_encoded, X_test_encoded
 
-def train_final_model_and_create_submission(params, X_train, X_val, y_train, y_val, X_test, test_obs_ids):
+def train_final_model_and_create_submission(params, X_train, X_val, y_train, y_val, X_test, test_obs_ids, pipeline_type):
     """Train final model and create submission."""
     print("\nStep 4: Training final model and creating submission")
     print("-" * 50)
@@ -112,7 +112,7 @@ def train_final_model_and_create_submission(params, X_train, X_val, y_train, y_v
         submission_path=None,  # Will generate automatic name
         test_obs_ids=test_obs_ids,
         auc_score=val_auc,
-        pipeline_type="full",
+        pipeline_type=pipeline_type,
         verbose=False  # Enable verbose output
     )
     
@@ -190,7 +190,7 @@ def main():
         
         # Train final single model with best parameters
         best_model, submission_path = train_final_model_and_create_submission(
-            tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids
+            tuning_results, X_train_encoded, X_val_encoded, y_train, y_val, X_test_encoded, test_obs_ids, pipeline_type="full"
         )
         
         # Get feature importance

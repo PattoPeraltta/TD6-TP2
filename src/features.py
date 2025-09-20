@@ -241,12 +241,12 @@ def add_bin_counting(df: pd.DataFrame, verbose: bool = False, cache_dir: str = "
     
     return df
 
-def make_features(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
+def add_all_features(df: pd.DataFrame, verbose: bool = False) -> pd.DataFrame:
     df = clean_nulls(df)
     df = add_temporal(df)
     df = add_track_order_in_day(df)
     df = add_track_features(df)
     df = add_platform(df)
     df = add_bin_counting(df, verbose=verbose)
-    df.drop(columns=['ts', 'master_metadata_album_artist_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri', 'Unnamed: 0'], inplace=True)
+    df.drop(columns=['ts', 'master_metadata_album_artist_name', 'master_metadata_track_name', 'episode_name', 'episode_show_name', 'master_metadata_album_album_name', 'ip_addr','spotify_track_uri', 'spotify_episode_uri', 'track_id', 'Unnamed: 0'], inplace=True)
     return df
