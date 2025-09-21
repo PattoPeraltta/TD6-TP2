@@ -66,7 +66,7 @@ class HyperoptTuner:
             'reg_lambda': hp.loguniform('reg_lambda', np.log(0.1), np.log(10.0)),
             
             # Discrete parameters
-            'n_estimators': hp.choice('n_estimators', [100, 200, 300, 500, 1000, 1500, 2000, 3500, 5000]),
+            'n_estimators': hp.choice('n_estimators', [100, 200, 300, 500, 900, 1000, 1500, 2000, 3500, 5000]),
             
             # Add fixed parameters
             **XGB_FIXED_PARAMS
@@ -217,7 +217,7 @@ class HyperoptTuner:
         self.trials = Trials()
 
         best_params_manual = {
-                    'n_estimators': 200,
+                    'n_estimators': 900,
                     'learning_rate': 0.03,
                     'max_depth': 5,
                     'min_child_weight': 5,
@@ -229,7 +229,7 @@ class HyperoptTuner:
                     'random_state': 420,
                     'eval_metric': 'auc'
                 }
-        best_auc_manual = 0.8063
+        best_auc_manual = 0.8330
 
         # Insert manual trial with proper structure
         import time
